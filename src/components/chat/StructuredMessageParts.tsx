@@ -1,0 +1,80 @@
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { ReactNode } from 'react'
+import { FileDown, FileSpreadsheet, Filter, LayoutDashboard, ListFilter, LockKeyhole, Pin, ShieldAlert, Sparkles } from 'lucide-react'
+import { ToolExecutionCard } from './ToolExecutionCard'
+import { GeneratedFileCard } from './GeneratedFileCard'
+import { ConfirmationCard } from './ConfirmationCard'
+import { MissingFieldsForm } from './MissingFieldsForm'
+import { RecordPreviewCard } from './RecordPreviewCard'
+import type { ChartPart, ChatMessagePart, ChatPermissionMeta, SourceMeta, SuggestedAction, TablePart } from '../../types/chat'
+import { useAuthStore } from '../../store/useAuthStore'
+import { formatCurrency } from '../../utils/formatters'
+
+type Props = {
+  parts?: ChatMessagePart[]
+  fallback: string
+  source?: SourceMeta | null
+  permission?: ChatPermissionMeta | null
+  actions?: SuggestedAction[]
+  onAction?: (action:SuggestedAction, source?:SourceMeta|null)=>void
+  actionSlot?: ReactNode
+}
+
+export function StructuredMessageParts({ parts = [], fallback, source, permission, actions = [], onAction, actionSlot }: Props) {
+  const currency=useAuthStore(state=>state.user?.companyCurrency)||'INR'
+  const hasTextPart = parts.some(part => part.type === 'text')
+  return <div className="space-y-3">
+    {!hasTextPart&&<p>{fallback}</p>}
+    {source&&<SourceStrip source={source} permission={permission}/>} 
+    {parts.map((part,index) => {
+      if(part.type==='text') return <p key={`text-${index}`}>{part.content}</p>
+      if(part.type==='tool_call') return <ToolExecutionCard key={`tool-${index}`} part={part}/>
+      if(part.type==='table') return <DynamicTable key={`table-${index}`} part={part} currency={currency}/>
+      if(part.type==='chart') return <DynamicChart key={`chart-${index}`} part={part}/>
+      if(part.type==='file') return <GeneratedFileCard key={`file-${index}`} part={part}/>
+      if(part.type==='missing_fields') return <MissingFieldsForm key={`missing-${index}`} part={part}/>
+      if(part.type==='record_preview') return <RecordPreviewCard key={`preview-${index}`} part={part}/>
+      if(part.type==='confirmation') return <ConfirmationCard key={`confirm-${index}`} part={part}/>
+      return null
+    })}
+    {permission&&!permission.allowed&&<div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><ShieldAlert size={15} className="shrink-0"/><span>{permission.reason||'ERPNext restricted this request.'}</span></div>}
+    {(actions.length>0||actionSlot)&&<div className="flex flex-wrap items-center gap-2"><SuggestedActions actions={actions} onAction={action=>onAction?.(action,source)}/>{actionSlot}</div>} 
+  </div>
+}
+
+function SourceStrip({source,permission}:{source:SourceMeta;permission?:ChatPermissionMeta|null}){
+  const filterCount=source.filters?Object.keys(source.filters).length:0
+  return <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"><LayoutDashboard size={12} className="text-indigo-500"/>{source.source_type}: {source.source_name}</span>
+    {source.record_count!==null&&source.record_count!==undefined&&<span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{source.record_count} records</span>}
+    {filterCount>0&&<span title={JSON.stringify(source.filters)} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-600"><Filter size={10}/>{filterCount} filter{filterCount===1?'':'s'}</span>}
+    {permission?.confirmation_required&&<span className="ml-auto rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Confirmation required</span>}
+  </div>
+}
+
+function DynamicTable({part,currency}:{part:TablePart;currency:string}){
+  return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="flex items-center justify-between border-b bg-slate-50/70 px-4 py-3"><div><p className="text-xs font-bold text-slate-800">{part.title}</p><p className="mt-0.5 text-[10px] text-slate-400">Showing {part.rows.length}{part.total_rows!==null&&part.total_rows!==undefined?` of ${part.total_rows}`:''} rows</p></div><ListFilter size={15} className="text-slate-400"/></div>
+    {part.rows.length===0?<div className="px-4 py-8 text-center text-xs text-slate-400">No records matched this query.</div>:<div className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[620px] text-left"><thead><tr className="border-b border-slate-100">{part.columns.map(column=><th key={column.key} className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{column.label}</th>)}</tr></thead><tbody>{part.rows.map((row,rowIndex)=><tr key={String(row.name||row.id||rowIndex)} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">{part.columns.map(column=><td key={column.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{formatCell(row[column.key],column.type,column.key,currency)}</td>)}</tr>)}</tbody></table></div>}
+  </div>
+}
+
+function formatCell(value:unknown,type:string,key:string,currency:string){
+  if(value===null||value===undefined||value==='') return <span className="text-slate-300">—</span>
+  if(typeof value==='boolean') return value?'Yes':'No'
+  if(type==='number'&&typeof value==='number') return <span className="font-semibold text-slate-800">{key.includes('amount')||key.includes('total')?formatCurrency(value,currency):new Intl.NumberFormat('en-IN').format(value)}</span>
+  if(key==='name') return <span className="font-semibold text-indigo-600">{String(value)}</span>
+  return String(value)
+}
+
+function DynamicChart({part}:{part:ChartPart}){
+  if(!part.data?.length||!part.x_key||!part.y_key) return null
+  const common={data:part.data,margin:{top:8,right:8,left:-16,bottom:0}}
+  const axes=<><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/><XAxis dataKey={part.x_key} axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#94a3b8'}}/><YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#94a3b8'}}/><Tooltip contentStyle={{borderRadius:10,fontSize:11,border:'1px solid #e2e8f0'}}/></>
+  return <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-bold text-slate-800">{part.title||'Chart preview'}</p><p className="mt-0.5 text-[10px] text-slate-400">Generated from permitted result rows</p></div><span className="rounded-full bg-indigo-50 px-2 py-1 text-[9px] font-bold text-indigo-600"><Sparkles size={9} className="mr-1 inline"/>Generated by AI</span></div><div className="h-52"><ResponsiveContainer width="100%" height="100%">{part.chart_type==='line'?<LineChart {...common}>{axes}<Line type="monotone" dataKey={part.y_key} stroke="#6366f1" strokeWidth={2.5} dot={{r:3}}/></LineChart>:part.chart_type==='area'?<AreaChart {...common}>{axes}<Area type="monotone" dataKey={part.y_key} stroke="#6366f1" fill="#e0e7ff" strokeWidth={2}/></AreaChart>:part.chart_type==='pie'||part.chart_type==='donut'?<PieChart><Tooltip/><Pie data={part.data} dataKey={part.y_key} nameKey={part.x_key} innerRadius={part.chart_type==='donut'?48:0} outerRadius={78} fill="#6366f1" label/></PieChart>:<BarChart {...common}>{axes}<Bar dataKey={part.y_key} fill="#6366f1" radius={[6,6,0,0]}/></BarChart>}</ResponsiveContainer></div></div>
+}
+
+const actionIcons:Record<string,typeof Pin>={generate_pdf:FileDown,export_excel:FileSpreadsheet,export_csv:FileSpreadsheet,download_file:FileDown,open_library:FileSpreadsheet,generate_another:Sparkles,pin_overview:Pin,refine_filters:Filter,view_related:ListFilter,open_module:LayoutDashboard,prepare_later:LockKeyhole}
+function SuggestedActions({actions,onAction}:{actions:SuggestedAction[];onAction:(action:SuggestedAction)=>void}){
+  return <>{actions.map(action=>{const Icon=actionIcons[action.action_type]||Sparkles;return <button key={`${action.action_type}-${action.label}`} type="button" onClick={()=>onAction(action)} disabled={action.disabled} title={action.reason||action.label} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-45"><Icon size={14}/>{action.label}</button>})}</>
+}

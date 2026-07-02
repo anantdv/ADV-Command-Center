@@ -1,0 +1,3 @@
+import { SkeletonCard } from './SkeletonCard'
+import { SkeletonTable } from './SkeletonTable'
+export function LoadingState({ cards = 6, table = false }: { cards?: number; table?: boolean }) { return <div aria-label="Loading page"><div className="animate-pulse"><div className="h-3 w-28 rounded bg-slate-200"/><div className="mt-4 h-8 w-72 max-w-full rounded-lg bg-slate-200"/><div className="mt-3 h-3 w-96 max-w-full rounded bg-slate-100"/></div>{table?<div className="mt-8"><SkeletonTable/></div>:<div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">{Array.from({length:cards},(_,index)=><SkeletonCard key={index}/>)}</div>}</div> }

@@ -1,0 +1,9 @@
+import { Filter, Plus, Search } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { PageHeader } from '../components/common/PageHeader'
+import { FileCard } from '../components/library/FileCard'
+import { LoadingState } from '../components/common/LoadingState'
+import { ErrorState } from '../components/common/ErrorState'
+import { EmptyState } from '../components/common/EmptyState'
+import { useLibraryFiles } from '../hooks/api/useLibrary'
+export function LibraryPage(){const path=useLocation().pathname;const rawSub=path.split('/')[2];const sub=rawSub||undefined;const names:Record<string,string>={spreadsheets:'Spreadsheets',pdf:'PDF Reports',charts:'Charts',dashboards:'Dashboards'};const query=useLibraryFiles(sub);if(query.isLoading)return <LoadingState/>;if(query.isError||!query.data)return <ErrorState retry={()=>void query.refetch()}/>;const visible=query.data;return <><PageHeader eyebrow="AI-generated assets" title={sub?names[sub]+' Library':'Library'} description="Find, share, and govern every report, chart, spreadsheet, and dashboard generated with Tinni." actions={<button className="btn-primary"><Plus size={16}/>Create with Tinni</button>}/><div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative max-w-md flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input placeholder="Search files and dashboards" className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-300"/></div><button className="btn-secondary"><Filter size={15}/>Filters</button></div>{visible.length?<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{visible.map(f=><FileCard key={f.id} file={f}/>)}</div>:<EmptyState title="No generated files yet" description="Ask Tinni to create a report, chart, spreadsheet, or dashboard." action={<button className="btn-primary"><Plus size={15}/>Create with Tinni</button>}/>}</>}

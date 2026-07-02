@@ -1,0 +1,10 @@
+import { ArrowRight, FilePenLine, PlusCircle } from 'lucide-react'
+import type { RecordPreviewPart } from '../../types/chat'
+
+export function RecordPreviewCard({part}:{part:RecordPreviewPart}){
+  const fields=Object.keys(part.after_data)
+  return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3"><div className="flex items-center gap-2">{part.operation==='create'?<PlusCircle size={16} className="text-indigo-600"/>:<FilePenLine size={16} className="text-indigo-600"/>}<div><p className="text-xs font-bold text-slate-800">{part.operation==='create'?`New ${part.doctype}`:`${part.doctype}: ${part.record_name}`}</p><p className="text-[10px] text-slate-400">Review the proposed values before confirming</p></div></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold uppercase text-amber-700">{part.risk_level} risk</span></div><div className="divide-y divide-slate-100">{fields.map(field=><div key={field} className="grid gap-1 px-4 py-3 text-xs sm:grid-cols-[150px_1fr]"><span className="font-semibold text-slate-500">{label(field)}</span>{part.operation==='update'?<div className="flex flex-wrap items-center gap-2"><Value value={part.before_data?.[field]}/><ArrowRight size={13} className="text-slate-300"/><Value value={part.after_data[field]} after/></div>:<Value value={part.after_data[field]} after/>}</div>)}</div><div className="border-t bg-indigo-50/50 px-4 py-2.5 text-[10px] font-semibold text-indigo-700">Confirmation required before ERPNext is changed.</div></div>
+}
+
+function label(value:string){return value.replaceAll('_',' ').replace(/\b\w/g,character=>character.toUpperCase())}
+function Value({value,after=false}:{value:unknown;after?:boolean}){return <span className={after?'font-semibold text-slate-800':'text-slate-400 line-through'}>{value===null||value===undefined||value===''?'—':typeof value==='object'?JSON.stringify(value):String(value)}</span>}

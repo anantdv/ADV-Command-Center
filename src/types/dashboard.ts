@@ -1,0 +1,11 @@
+export type WidgetType='kpi'|'line_chart'|'bar_chart'|'pie_chart'|'donut_chart'|'area_chart'|'table'|'aging'|'summary_card'
+export type SourceType='doctype'|'report'|'chat_result'|'manual_config'
+export type DashboardWidgetSource={source_type:SourceType;source_name?:string|null;doctype?:string|null;report_name?:string|null;filters?:Record<string,unknown>|null;fields?:string[]|null;group_by?:string|null;aggregate_field?:string|null;aggregate_function?:'count'|'sum'|'avg'|'min'|'max'|null}
+export type DashboardWidgetLayout={x:number;y:number;w:number;h:number}
+export type WidgetPermission={allowed:boolean;risk_level?:string;confirmation_required?:boolean;reason?:string|null}
+export type DashboardWidgetData={widget_id:string;title:string;widget_type:WidgetType;source:DashboardWidgetSource;chart_config?:Record<string,unknown>|null;layout:DashboardWidgetLayout;data:Record<string,unknown>|Array<Record<string,unknown>>|null;permission?:WidgetPermission|null;last_refreshed_at?:string|null;error?:string|null;refresh_interval_seconds?:number|null;visibility?:'private'|'role_based';allowed_roles?:string[];conversation_id?:string|null;message_id?:string|null;label?:string|null;value?:string|number|null;accent?:string}
+export type DashboardOverviewResponse={kpis:DashboardWidgetData[];widgets:DashboardWidgetData[];insights:string[]}
+export type CreateDashboardWidgetRequest={title:string;widget_type:WidgetType;source:DashboardWidgetSource;chart_config?:Record<string,unknown>|null;layout?:Partial<DashboardWidgetLayout>;refresh_interval_seconds?:number;visibility?:'private'|'role_based';allowed_roles?:string[];conversation_id?:string;message_id?:string}
+export type UpdateDashboardWidgetRequest=Partial<Omit<CreateDashboardWidgetRequest,'source'>>
+export type PinChatResultRequest={conversation_id:string;message_id:string;title:string;widget_type:WidgetType;source:DashboardWidgetSource;chart_config?:Record<string,unknown>|null}
+export type PinChatResultResponse={widget_id:string;title:string;message:string}

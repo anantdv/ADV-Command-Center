@@ -1,0 +1,276 @@
+import re
+from datetime import date
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+from app.agents.runtime import AgentContext, AgentResult
+from app.utils.field_mapper import ALLOWED_CREATE_FIELDS, ALLOWED_UPDATE_FIELDS
+from app.utils.payload_builder import PayloadBuilder
+from app.config import settings
+from app.llm.extraction_service import LLMExtractionService
+from app.llm.schemas import ExtractedIntent
+
+DOCTYPE_ALIASES = {
+    "support ticket": "Issue",
+    "issues": "Issue",
+    "issue": "Issue",
+    "purchase invoices": "Purchase Invoice",
+    "purchase invoice": "Purchase Invoice",
+    "sales invoices": "Sales Invoice",
+    "sales invoice": "Sales Invoice",
+    "purchase orders": "Purchase Order",
+    "purchase order": "Purchase Order",
+    "sales orders": "Sales Order",
+    "sales order": "Sales Order",
+    "stock items": "Item",
+    "stock item": "Item",
+    "opportunities": "Opportunity",
+    "opportunity": "Opportunity",
+    "quotations": "Quotation",
+    "quotation": "Quotation",
+    "customers": "Customer",
+    "customer": "Customer",
+    "suppliers": "Supplier",
+    "supplier": "Supplier",
+    "employees": "Employee",
+    "employee": "Employee",
+    "projects": "Project",
+    "project": "Project",
+    "invoices": "Sales Invoice",
+    "invoice": "Sales Invoice",
+    "items": "Item",
+    "item": "Item",
+    "leads": "Lead",
+    "lead": "Lead",
+    "tasks": "Task",
+    "task": "Task",
+}
+
+REPORT_ALIASES = {
+    "stock balance": "Stock Balance",
+    "stock ledger": "Stock Ledger",
+    "general ledger": "General Ledger",
+    "trial balance": "Trial Balance",
+    "receivables": "Accounts Receivable",
+    "receivable": "Accounts Receivable",
+    "payables": "Accounts Payable",
+    "payable": "Accounts Payable",
+}
+
+BLOCKED_WRITE_PHRASES = ("submit", "cancel", "delete", "remove", "amend", "approve", "reject", "make payment", "payment entry", "journal entry", "salary", "payroll", "bulk update", "send email", "email customer")
+
+RECORD_ID_PATTERN = re.compile(
+    r"\b(?:ACC-SINV|SINV|PINV|SAL-ORD|PUR-ORD|SAL-QTN|ITEM|CUST|SUPP)-[A-Z0-9-]+\b",
+    re.IGNORECASE,
+)
+
+
+class IntentResult(BaseModel):
+    intent: Literal[
+        "list_records", "get_record", "run_report", "summary_query", "chart_query",
+        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "blocked_write", "unsupported", "write_blocked",
+    ]
+    doctype: str | None = None
+    report_name: str | None = None
+    record_name: str | None = None
+    filters: dict[str, Any] | None = None
+    fields: list[str] | None = None
+    limit: int = Field(20, ge=1, le=500)
+    confidence: float = 0.7
+    write_requested: bool = False
+    raw_prompt: str = ""
+    conversation_id: str | None = None
+    sensitive_intent: bool = False
+    file_format: Literal["xlsx", "csv", "pdf", "html", "png"] | None = None
+    source_type: Literal["doctype", "report", "chat_result"] | None = None
+    source_name: str | None = None
+    rows: list[dict[str, Any]] | None = None
+    chart_config: dict[str, Any] | None = None
+    operation: Literal["create", "update"] | None = None
+    data: dict[str, Any] | None = None
+    missing_info_hint: str | None = None
+    date_range: dict[str, str] | None = None
+    widget_type: Literal["kpi", "line_chart", "bar_chart", "pie_chart", "donut_chart", "area_chart", "table", "summary_card"] | None = None
+    extraction_method: Literal["vertex_gemini", "rules"] = "rules"
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    llm_confidence: float | None = None
+
+
+class RouterAgent:
+    def __init__(self, extraction: LLMExtractionService | None = None):
+        self.extraction = extraction or LLMExtractionService()
+
+    async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None) -> IntentResult:
+        extracted = await self.extraction.extract_intent(message, module_context, user=user, conversation_id=conversation_id)
+        if extracted and (extracted.intent == "blocked_write" or (extracted.intent != "unsupported" and extracted.confidence >= settings.llm_confidence_threshold)):
+            return self._from_extracted(extracted, message)
+        result = await self._classify_rules(message)
+        result.extraction_method = "rules"
+        return result
+
+    async def _classify_rules(self, message: str) -> IntentResult:
+        text = " ".join(message.lower().split())
+        file_format = self._file_format(text)
+        file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
+        if file_requested:
+            report_name = self._match_alias(text, REPORT_ALIASES)
+            doctype = self._match_alias(text, DOCTYPE_ALIASES)
+            source_type: Literal["doctype", "report", "chat_result"] = "report" if report_name else ("doctype" if doctype else "chat_result")
+            source_name = report_name or doctype or "Previous chat result"
+            return IntentResult(intent="generate_file", report_name=report_name, doctype=doctype, filters=self._filters(text, doctype) if doctype else {}, confidence=.97, raw_prompt=message, file_format=file_format, source_type=source_type, source_name=source_name)
+        # A support ticket may legitimately describe a blocked ERP operation
+        # (for example, "user cannot submit invoice"). Treat the outer action
+        # as safe Issue creation; the quoted problem text is only its content.
+        if re.search(r"\b(?:create|add)\s+(?:a\s+)?(?:support ticket|issue)\b", text):
+            return IntentResult(intent="crud_create", operation="create", doctype="Issue", data=PayloadBuilder.extract_create("Issue", message), confidence=.97, raw_prompt=message)
+        if self._blocked_write_requested(text):
+            return IntentResult(
+                intent="blocked_write",
+                write_requested=True,
+                confidence=0.99,
+                raw_prompt=message,
+            )
+
+        create_requested = bool(re.search(r"\b(create|add)\b", text))
+        update_requested = bool(re.search(r"\b(update|change)\b", text))
+        if create_requested or update_requested:
+            doctype = self._match_alias(text, DOCTYPE_ALIASES)
+            operation: Literal["create", "update"] = "create" if create_requested else "update"
+            supported = ALLOWED_CREATE_FIELDS if operation == "create" else ALLOWED_UPDATE_FIELDS
+            if not doctype or doctype not in supported:
+                return IntentResult(intent="blocked_write", write_requested=True, doctype=doctype, operation=operation, confidence=.98, raw_prompt=message)
+            if operation == "create":
+                data = PayloadBuilder.extract_create(doctype, message)
+                return IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, confidence=.94, raw_prompt=message)
+            record_name, data = PayloadBuilder.extract_update(doctype, message)
+            return IntentResult(intent="crud_update", operation="update", doctype=doctype, record_name=record_name, data=data, missing_info_hint=None if record_name and data else "Include the record name, field, and new value.", confidence=.92, raw_prompt=message)
+
+        report_name = self._match_alias(text, REPORT_ALIASES)
+        if report_name:
+            return IntentResult(
+                intent="run_report",
+                report_name=report_name,
+                filters={},
+                confidence=0.95,
+                raw_prompt=message,
+            )
+
+        doctype = self._match_alias(text, DOCTYPE_ALIASES)
+        if not doctype:
+            return IntentResult(intent="unsupported", confidence=0.2, raw_prompt=message)
+
+        filters = self._filters(text, doctype)
+        record_name = self._record_name(text, doctype)
+        if record_name:
+            return IntentResult(
+                intent="get_record",
+                doctype=doctype,
+                record_name=record_name,
+                filters=filters,
+                confidence=0.94,
+                raw_prompt=message,
+            )
+
+        intent = "chart_query" if any(word in text for word in ("chart", "graph", "trend")) else "list_records"
+        return IntentResult(
+            intent=intent,
+            doctype=doctype,
+            filters=filters,
+            confidence=0.9,
+            raw_prompt=message,
+        )
+
+    @classmethod
+    def _from_extracted(cls, extracted: ExtractedIntent, message: str) -> IntentResult:
+        filters=dict(extracted.filters or {})
+        if extracted.date_range and extracted.doctype:
+            field={"Sales Invoice":"posting_date","Purchase Invoice":"posting_date","Sales Order":"transaction_date","Purchase Order":"transaction_date","Quotation":"transaction_date","Lead":"creation","Opportunity":"transaction_date","Issue":"opening_date"}.get(extracted.doctype)
+            if field:
+                start=extracted.date_range.get("from_date");end=extracted.date_range.get("to_date")
+                if extracted.date_range.get("period") == "this_month":
+                    today=date.today();start=today.replace(day=1).isoformat();end=today.isoformat()
+                if start and end: filters[field]=["between",[start,end]]
+        if extracted.date_range and extracted.report_name:
+            for key in ("from_date", "to_date"):
+                if extracted.date_range.get(key): filters[key]=extracted.date_range[key]
+        source_type = "report" if extracted.report_name else ("doctype" if extracted.doctype else "chat_result")
+        source_name = extracted.report_name or extracted.doctype or "Previous chat result"
+        return IntentResult(intent=extracted.intent,operation=extracted.operation if extracted.operation in {"create","update"} else None,doctype=extracted.doctype,report_name=extracted.report_name,record_name=extracted.record_name,data=extracted.data,filters=filters,fields=extracted.fields or None,limit=extracted.limit,confidence=extracted.confidence,write_requested=extracted.intent=="blocked_write",raw_prompt=message,file_format=extracted.file_format,source_type=source_type if extracted.intent=="generate_file" else None,source_name=source_name if extracted.intent=="generate_file" else None,date_range=extracted.date_range,widget_type=extracted.widget_type,extraction_method="vertex_gemini",llm_provider=extracted.provider or "vertex_gemini",llm_model=extracted.model,llm_confidence=extracted.confidence)
+
+    async def handle(self, context: AgentContext) -> AgentResult:
+        intent = await self.classify(context.message)
+        return AgentResult(
+            agent_name="router_agent",
+            content=f"Classified as {intent.intent}",
+            data=intent.model_dump(),
+        )
+
+    @staticmethod
+    def _match_alias(text: str, aliases: dict[str, str]) -> str | None:
+        for alias, target in aliases.items():
+            if re.search(rf"\b{re.escape(alias)}\b", text):
+                return target
+        return None
+
+    @staticmethod
+    def _file_format(text: str) -> Literal["xlsx", "csv", "pdf", "html", "png"] | None:
+        if re.search(r"\b(excel|xlsx)\b", text): return "xlsx"
+        if re.search(r"\bcsv\b", text): return "csv"
+        if re.search(r"\bpdf\b", text): return "pdf"
+        if re.search(r"\bhtml\b", text): return "html"
+        if re.search(r"\b(png|chart image|image)\b", text): return "png"
+        if "save this chart" in text: return "png"
+        return None
+
+    @staticmethod
+    def _blocked_write_requested(text: str) -> bool:
+        command_patterns = (
+            r"^(?:please\s+)?(?:submit|cancel|delete|remove|amend|approve|reject)\b",
+            r"^(?:please\s+)?(?:create|make)\s+(?:a\s+)?(?:payment entry|journal entry|salary|payroll)\b",
+            r"^(?:please\s+)?bulk\s+update\b",
+            r"^(?:please\s+)?(?:send\s+email|email\s+customer)\b",
+        )
+        return any(re.search(pattern, text) for pattern in command_patterns)
+
+    @staticmethod
+    def _filters(text: str, doctype: str) -> dict[str, Any]:
+        if doctype in {"Sales Invoice", "Purchase Invoice"}:
+            if "overdue" in text:
+                return {"status": "Overdue"}
+            if "unpaid" in text:
+                return {"outstanding_amount": [">", 0]}
+            if "paid" in text:
+                return {"outstanding_amount": ["=", 0]}
+            if "draft" in text:
+                return {"docstatus": 0}
+            if "submitted" in text:
+                return {"docstatus": 1}
+        if doctype in {"Sales Order", "Purchase Order"}:
+            if "open" in text:
+                return {"status": ["not in", ["Closed", "Completed", "Cancelled"]]}
+            if "closed" in text:
+                return {"status": "Closed"}
+        if doctype == "Item" and "disabled" in text:
+            return {"disabled": 1}
+        if doctype == "Customer" and "active" in text:
+            return {"disabled": 0}
+        return {}
+
+    @staticmethod
+    def _record_name(text: str, doctype: str) -> str | None:
+        known = RECORD_ID_PATTERN.search(text)
+        if known:
+            return known.group(0).upper()
+        singular = {
+            "Customer": "customer",
+            "Supplier": "supplier",
+            "Item": "item",
+            "Sales Invoice": "invoice",
+        }.get(doctype)
+        if singular:
+            match = re.search(rf"\b(?:show|get|find)\s+{singular}\s+([^\s,?]+)", text, re.IGNORECASE)
+            if match and match.group(1).lower() not in {"list", "records", "details"}:
+                return match.group(1).upper()
+        return None

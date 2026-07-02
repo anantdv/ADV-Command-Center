@@ -1,0 +1,5 @@
+import { tickets } from '../../data/mockData'
+import type { AiHelpRequest, AiHelpResponse, CreateTicketRequest, Ticket } from '../../types/support'
+import { fullPermission, mockDelay } from './mockUtils'
+let supportTickets:Ticket[]=tickets.map(ticket=>({...ticket,permissions:fullPermission}))
+export const mockSupportService={getTickets:()=>mockDelay(supportTickets),createTicket:(request:CreateTicketRequest)=>{const ticket:Ticket={id:`SUP-2026-${150+supportTickets.length}`,subject:request.subject,priority:request.priority,status:'Open',assignedTo:'AI Triage',created:new Date().toLocaleDateString('en-IN'),permissions:fullPermission};supportTickets=[ticket,...supportTickets];return mockDelay(ticket)},getAiHelp:(request:AiHelpRequest):Promise<AiHelpResponse>=>mockDelay({answer:`I checked common causes for “${request.message}”. Review permissions and the latest error log first.`,suggestedActions:['Check document status','Review user permissions','Create support ticket'],createTicketRecommended:false})}

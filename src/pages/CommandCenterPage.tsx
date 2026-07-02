@@ -1,0 +1,110 @@
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Clock3, LayoutDashboard, MessageSquarePlus, Pin, Search, Sparkles } from 'lucide-react'
+import { ChatMessage as ChatBubble } from '../components/chat/ChatMessage'
+import { CommandInput } from '../components/chat/CommandInput'
+import { StructuredMessageParts } from '../components/chat/StructuredMessageParts'
+import { ErrorState } from '../components/common/ErrorState'
+import { LoadingState } from '../components/common/LoadingState'
+import { TinniAvatar } from '../components/common/BrandLogo'
+import { PinToDashboardButton } from '../components/chat/PinToDashboardButton'
+import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
+import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
+
+const prompts = [
+  'Show overdue sales invoices.',
+  'Show customers.',
+  'Show stock balance.',
+  'Show unpaid invoices.',
+  'Show purchase orders.',
+  'Create customer ABC Trading.',
+]
+
+export function CommandCenterPage() {
+  const navigate=useNavigate()
+  const conversations = useConversations()
+  const sendMessage = useSendChatMessage()
+  const [selectedId,setSelectedId] = useState<string>()
+  const [newChat,setNewChat] = useState(false)
+  const [optimisticUser,setOptimisticUser] = useState<string|null>(null)
+  const [transientResponse,setTransientResponse] = useState<AssistantChatResponse|null>(null)
+  const endRef=useRef<HTMLDivElement>(null)
+  const messages=useConversationMessages(selectedId||'')
+
+  useEffect(()=>{
+    if(!selectedId&&!newChat&&conversations.data?.[0]) setSelectedId(conversations.data[0].id)
+  },[conversations.data,newChat,selectedId])
+
+  const history=messages.data||[]
+  const historyHasUser=Boolean(optimisticUser&&history.some(message=>message.role==='user'&&message.content===optimisticUser))
+  const historyHasResponse=Boolean(transientResponse&&history.some(message=>message.id===transientResponse.message_id))
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'})},[history.length,optimisticUser,transientResponse,sendMessage.isPending])
+
+  const send=(text:string)=>{
+    if(sendMessage.isPending)return
+    setOptimisticUser(text)
+    setTransientResponse(null)
+    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text},{
+      onSuccess:response=>{setSelectedId(response.conversation_id);setNewChat(false);setTransientResponse(response)},
+    })
+  }
+  const runAction=(action:SuggestedAction,source?:SourceMeta|null)=>{
+    if(action.disabled)return
+    if(action.action_type==='download_file'&&action.reason){window.location.assign(action.reason);return}
+    if(action.action_type==='open_library'){navigate('/library');return}
+    const format:Record<string,string>={generate_pdf:'pdf',export_excel:'excel',export_csv:'csv'}
+    if(format[action.action_type]){
+      const overdue=source?.filters&&source.filters.status==='Overdue'?'overdue ':''
+      send(`generate ${format[action.action_type]} for ${overdue}${source?.source_name||'this result'}`)
+    }
+  }
+  const startNew=()=>{setNewChat(true);setSelectedId(undefined);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
+  const selectConversation=(id:string)=>{setSelectedId(id);setNewChat(false);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
+  const selected=conversations.data?.find(item=>item.id===selectedId)
+  const showConversation=Boolean((selectedId||newChat)&&(history.length||optimisticUser||transientResponse||sendMessage.isPending||sendMessage.isError))
+
+  if(conversations.isLoading)return <LoadingState cards={4}/>
+  if(conversations.isError)return <ErrorState retry={()=>void conversations.refetch()}/>
+
+  return <div className="-m-4 flex h-[calc(100vh-72px)] overflow-hidden sm:-m-6 lg:-m-8">
+    <aside className="hidden w-[264px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+      <div className="p-4"><button onClick={startNew} className="btn-primary w-full"><MessageSquarePlus size={16}/>New command</button><div className="relative mt-3"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input placeholder="Search conversations" className="h-9 w-full rounded-lg border bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-indigo-300"/></div></div>
+      <div className="flex-1 overflow-y-auto px-2"><p className="eyebrow px-3 py-2">Recent</p>{conversations.data?.map(conversation=><button key={conversation.id} onClick={()=>selectConversation(conversation.id)} className={`mb-1 w-full rounded-xl p-3 text-left transition ${conversation.id===selectedId&&!newChat?'bg-indigo-50':'hover:bg-slate-50'}`}><p className={`truncate text-xs font-semibold ${conversation.id===selectedId&&!newChat?'text-indigo-700':'text-slate-700'}`}>{conversation.title}</p><p className="mt-1 flex items-center gap-1 text-[10px] text-slate-400"><Clock3 size={10}/>{new Date(conversation.updatedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</p></button>)}</div>
+      <div className="border-t p-4"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold text-slate-500">CONTROLLED ACTIONS</p><p className="mt-2 text-[10px] leading-4 text-slate-400">Reads are live. Safe draft creates and field updates require your confirmation.</p></div></div>
+    </aside>
+    <section className="relative flex min-w-0 flex-1 flex-col bg-[#f8f9fc]">
+      <div className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div className="flex items-center gap-2.5"><TinniAvatar className="size-8"/><div><p className="text-sm font-bold text-slate-800">{newChat?'New command':selected?.title||'Tinni'}</p><p className="text-[10px] text-slate-400">Tinni · Live ERPNext · Controlled draft actions</p></div></div><div className="flex items-center gap-2"><button aria-label="Pin conversation" className="hidden rounded-lg border p-2 text-slate-400 hover:bg-slate-50 sm:block"><Pin size={15}/></button></div></div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {!showConversation?<EmptyCommandCenter onPrompt={send}/>:<div className="mx-auto max-w-4xl space-y-7 px-4 pb-40 pt-7 sm:px-8">
+          {messages.isLoading&&<LoadingState cards={2}/>} 
+          {messages.isError&&<ErrorState retry={()=>void messages.refetch()}/>} 
+          {history.map(message=><HistoryMessage key={message.id} message={message} onAction={runAction}/>)}
+          {optimisticUser&&!historyHasUser&&<ChatBubble role="user">{optimisticUser}</ChatBubble>}
+          {sendMessage.isPending&&<ChatBubble role="assistant"><TypingIndicator/></ChatBubble>}
+          {sendMessage.isError&&<ChatBubble role="assistant"><div className="rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{sendMessage.error instanceof Error?sendMessage.error.message:'The command could not be completed.'}</div></ChatBubble>}
+          {transientResponse&&!historyHasResponse&&!sendMessage.isPending&&<AssistantResponseView response={transientResponse} onAction={runAction}/>} 
+          <div ref={endRef}/>
+        </div>}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation</p></div></div>
+    </section>
+  </div>
+}
+
+function EmptyCommandCenter({onPrompt}:{onPrompt:(prompt:string)=>void}){
+  return <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-28 pt-12"><TinniAvatar className="size-16 shadow-lg shadow-indigo-200"/><h1 className="mt-5 font-[Manrope] text-2xl font-bold">What would you like to do?</h1><p className="mt-2 text-center text-sm text-slate-500">Ask Tinni about ERPNext data, or prepare a controlled draft action for review.</p><div className="mt-8 grid w-full gap-3 sm:grid-cols-2">{prompts.map((prompt,index)=><button onClick={()=>onPrompt(prompt)} key={prompt} className="card flex items-start gap-3 p-4 text-left text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">{index%2?<LayoutDashboard size={15}/>:<Sparkles size={15}/>}</span><span>{prompt}</span></button>)}</div></div>
+}
+
+function HistoryMessage({message,onAction}:{message:ChatMessage;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void}){
+  if(message.role==='user')return <ChatBubble role="user">{message.content}</ChatBubble>
+  if(message.role!=='assistant')return null
+  const chart=message.parts?.find(part=>part.type==='chart');const chartConfig=chart&&chart.type==='chart'?{chart_type:chart.chart_type,x_key:chart.x_key,y_key:chart.y_key}:null
+  return <ChatBubble role="assistant" extraction={message.extraction}><StructuredMessageParts parts={message.parts} fallback={message.content} source={message.source} permission={message.permission} actions={message.suggestedActions?.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={message.source?<PinToDashboardButton conversationId={message.conversationId} messageId={message.id} source={message.source} chartConfig={chartConfig}/>:undefined}/></ChatBubble>
+}
+
+function AssistantResponseView({response,onAction}:{response:AssistantChatResponse;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void}){
+  const chart=response.parts.find(part=>part.type==='chart');const chartConfig=chart&&chart.type==='chart'?{chart_type:chart.chart_type,x_key:chart.x_key,y_key:chart.y_key}:null
+  return <ChatBubble role="assistant" extraction={response.extraction}><StructuredMessageParts parts={response.parts} fallback={response.content} source={response.source} permission={response.permission} actions={response.suggested_actions.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={response.source?<PinToDashboardButton conversationId={response.conversation_id} messageId={response.message_id} source={response.source} chartConfig={chartConfig}/>:undefined}/></ChatBubble>
+}
+
+function TypingIndicator(){return <span className="inline-flex gap-1.5"><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/></span>}
