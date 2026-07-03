@@ -11,6 +11,7 @@ const LibraryPage = lazy(() => import('../pages/LibraryPage').then(m => ({ defau
 const TrainingPage = lazy(() => import('../pages/TrainingPage').then(m => ({ default: m.TrainingPage })))
 const SupportPage = lazy(() => import('../pages/SupportPage').then(m => ({ default: m.SupportPage })))
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const CommunicationCenterPage = lazy(() => import('../features/communications/pages/CommunicationCenterPage').then(m => ({ default: m.CommunicationCenterPage })))
 const LoginPage = lazy(() => import('../pages/LoginPage').then(m => ({ default: m.LoginPage })))
 const page = (content: ReactNode) => <Suspense fallback={<div className="grid min-h-[50vh] place-items-center"><div className="size-8 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" /></div>}>{content}</Suspense>
 
@@ -19,6 +20,7 @@ export const router=createBrowserRouter([
   {path:'/',element:<AuthGuard><AppLayout/></AuthGuard>,children:[
   {index:true,element:<Navigate to="/overview" replace/>},
   {path:'overview',element:page(<OverviewPage/>)},{path:'command-center',element:page(<CommandCenterPage/>)},
+  {path:'communications',element:page(<CommunicationCenterPage/>)},
   {path:'modules',element:page(<ModulesPage/>)},{path:'modules/:moduleId',element:page(<ModuleDetailPage/>)},
   {path:'library',element:page(<LibraryPage/>)},{path:'library/:category',element:page(<LibraryPage/>)},
   {path:'training',element:page(<TrainingPage/>)},{path:'training/:section',element:page(<TrainingPage/>)},

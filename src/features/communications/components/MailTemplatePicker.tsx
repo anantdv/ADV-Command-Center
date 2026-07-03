@@ -1,0 +1,3 @@
+import {useQuery} from '@tanstack/react-query'
+import {communicationApi} from '../services/communicationApi'
+export function MailTemplatePicker({onSelect}:{onSelect:(subject:string,content:string)=>void}){const templates=useQuery({queryKey:['communications','templates'],queryFn:communicationApi.templates});return <select onChange={async e=>{if(!e.target.value)return;const item=await communicationApi.renderTemplate(e.target.value);onSelect(item.subject||'',item.response||'')}} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs"><option value="">Choose email template</option>{templates.data?.map(item=><option key={item.name} value={item.name}>{item.name}</option>)}</select>}

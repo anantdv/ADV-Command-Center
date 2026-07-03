@@ -2,6 +2,8 @@
 
 Enterprise React and FastAPI command center for permission-aware ERPNext/Frappe access, Tinni chat, dashboards, generated files, controlled draft CRUD, and privacy-gated Vertex Gemini intent extraction.
 
+The Communications workspace adds a permission-aware business inbox, sent mail, threads, templates, document linking, explicit reply/forward actions, AI draft previews, and email-to-Task/Issue/Lead conversion on top of Frappe's standard Communication and email queue.
+
 The Frappe companion app is maintained separately at [`anantdv/ai_command_center`](https://github.com/anantdv/ai_command_center) and is intentionally excluded from this repository.
 
 ## Local development

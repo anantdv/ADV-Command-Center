@@ -1,0 +1,10 @@
+export type MailFolder='inbox'|'sent'|'drafts'|'starred'|'linked'|'templates'
+export type CommunicationItem={name:string;subject:string;sender:string;recipients:string;cc?:string|null;communication_type:string;sent_or_received:string;reference_doctype?:string|null;reference_name?:string|null;creation:string;status?:string|null;has_attachment:boolean;preview:string;unread:boolean}
+export type MailAttachment={name:string;file_name:string;file_url?:string|null;is_private:boolean}
+export type CommunicationMessage=CommunicationItem&{content:string;attachments:MailAttachment[]}
+export type CommunicationThread={thread_id:string;reference_doctype?:string|null;reference_name?:string|null;messages:CommunicationMessage[]}
+export type CommunicationList={items:CommunicationItem[];total:number}
+export type EmailTemplate={name:string;subject?:string|null;response?:string|null}
+export type ComposerData={to:string[];cc:string[];bcc:string[];subject:string;content:string;reference_doctype?:string;reference_name?:string;attachments:string[]}
+export type ActionResult={name:string;doctype:string;message:string}
+export type AiDraft={action:string;content:string;requires_review:boolean}

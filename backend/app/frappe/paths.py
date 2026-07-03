@@ -28,3 +28,16 @@ CREATE_SUPPORT_TICKET = "/api/method/ai_command_center.api.support.create_suppor
 LIST_SUPPORT_TICKETS = "/api/method/ai_command_center.api.support.list_support_tickets"
 
 CREATE_AUDIT_LOG = "/api/method/ai_command_center.api.audit.create_audit_log"
+
+GET_COMMUNICATIONS = "/api/method/ai_command_center.api.communications.get_communications"
+GET_COMMUNICATION_THREAD = "/api/method/ai_command_center.api.communications.get_communication_thread"
+SEND_EMAIL = "/api/method/ai_command_center.api.communications.send_email"
+REPLY_TO_COMMUNICATION = "/api/method/ai_command_center.api.communications.reply_to_communication"
+FORWARD_COMMUNICATION = "/api/method/ai_command_center.api.communications.forward_communication"
+GET_EMAIL_TEMPLATES = "/api/method/ai_command_center.api.communications.get_email_templates"
+RENDER_EMAIL_TEMPLATE = "/api/method/ai_command_center.api.communications.render_email_template"
+LINK_COMMUNICATION = "/api/method/ai_command_center.api.communications.link_communication"
+CREATE_AI_MAIL_DRAFT = "/api/method/ai_command_center.api.communications.create_ai_mail_draft"
+CONVERT_EMAIL_TO_TASK = "/api/method/ai_command_center.api.communications.convert_email_to_task"
+CONVERT_EMAIL_TO_ISSUE = "/api/method/ai_command_center.api.communications.convert_email_to_issue"
+CONVERT_EMAIL_TO_LEAD = "/api/method/ai_command_center.api.communications.convert_email_to_lead"

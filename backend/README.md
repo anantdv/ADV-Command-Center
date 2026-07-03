@@ -282,6 +282,25 @@ curl -X POST http://localhost:8000/api/chat/actions/pin-to-dashboard \
 
 The FastAPI metadata fallback is user-scoped and stored in the existing SQLAlchemy dashboard tables. Companion method constants for list/get/update/delete/reorder are prepared; migrate this repository to Frappe `AI Dashboard Widget` once those methods are deployed.
 
+## Communication Center
+
+The `/api/communications` router proxies only to the installed companion app and preserves the current Frappe `sid`. It never reads the ERPNext database directly.
+
+```bash
+curl "http://localhost:8000/api/communications?folder=inbox"
+curl http://localhost:8000/api/communications/COMM-0001
+
+curl -X POST http://localhost:8000/api/communications/send \
+  -H "Content-Type: application/json" \
+  -d '{"to":["customer@example.com"],"subject":"Quotation follow-up","content":"<p>Thank you for your inquiry.</p>","cc":[],"bcc":[],"attachments":[],"reference_doctype":"Quotation","reference_name":"SAL-QTN-2026-00001"}'
+
+curl -X POST http://localhost:8000/api/communications/COMM-0001/reply \
+  -H "Content-Type: application/json" \
+  -d '{"content":"<p>Thank you. We will respond shortly.</p>","cc":[],"bcc":[],"attachments":[]}'
+```
+
+List/thread calls apply Communication permissions plus linked-record visibility. Send and relink require write permission on the referenced document. Unlinked messages are limited to the owner, sender, recipient, or communication manager. Email bodies are sanitized and attachments must be readable `File` records. AI actions produce reviewable drafts only; sending and Task/Issue/Lead conversion require separate user clicks.
+
 Before production, implement the companion `ai_command_center` Frappe app methods, replace mock permission decisions with Frappe checks, and persist conversations/files/tickets through repositories.
 
 ## Database and tests

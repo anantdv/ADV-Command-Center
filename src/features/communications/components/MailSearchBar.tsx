@@ -1,0 +1,2 @@
+import {Search} from 'lucide-react'
+export function MailSearchBar({value,onChange}:{value:string;onChange:(v:string)=>void}){return <div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={value} onChange={e=>onChange(e.target.value)} placeholder="Search subject, sender or message" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-indigo-300"/></div>}
