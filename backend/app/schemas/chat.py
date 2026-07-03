@@ -151,6 +151,10 @@ class ExtractionMeta(BaseModel):
     confidence: float | None = None
     provider: str | None = None
     model: str | None = None
+    privacy_checked: bool = False
+    privacy_allowed: bool = False
+    erp_data_sent: bool = False
+    fallback_used: bool = False
 
 
 MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | ConfirmationPart

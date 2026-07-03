@@ -1,0 +1,3 @@
+import type { KnowledgeSource } from '../../types/knowledge'
+import { KnowledgeSourceBadge } from './KnowledgeSourceBadge'
+export function KnowledgeArticleCard({source}:{source:KnowledgeSource}){return <article className="card p-4"><div className="flex items-center justify-between gap-2"><KnowledgeSourceBadge type={source.sourceType}/><span className={`text-[10px] font-bold ${source.status==='approved'?'text-emerald-600':'text-amber-600'}`}>{source.status}</span></div><h3 className="mt-3 text-sm font-bold">{source.title}</h3><p className="mt-1 text-xs text-slate-400">{source.description||source.module||'Private knowledge source'}</p></article>}

@@ -19,6 +19,8 @@ logger = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.validate_llm_runtime()
+    settings.validate_rag_runtime()
     Base.metadata.create_all(bind=engine)
     yield
 

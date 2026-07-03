@@ -3,3 +3,7 @@ export type TrainingData = { courses: Course[] }
 export type TrainingResult = { assessmentId: string; score: number; completedAt: string }
 export type SubmitAssessmentRequest = { answers: Record<string, string | string[]> }
 export type SubmitAssessmentResponse = TrainingResult
+export type TrainingLesson={lessonId:string;courseId:string;title:string;lessonType:'text'|'video'|'pdf'|'html';content?:string|null;mediaUrl?:string|null;durationMinutes?:number|null;sortOrder:number}
+export type AssessmentQuestion={questionId:string;question:string;options:string[];correctAnswer?:string|null;explanation?:string|null}
+export type GeneratedAssessment={assessmentId:string;sourceId:string;questions:AssessmentQuestion[]}
+export type LeaderboardEntry={rank:number;name:string;points:number}

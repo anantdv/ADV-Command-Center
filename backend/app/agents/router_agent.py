@@ -10,6 +10,7 @@ from app.utils.payload_builder import PayloadBuilder
 from app.config import settings
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
+from app.core.audit import AuditEvent, log_audit_event
 
 DOCTYPE_ALIASES = {
     "support ticket": "Issue",
@@ -96,6 +97,10 @@ class IntentResult(BaseModel):
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_confidence: float | None = None
+    privacy_checked: bool = False
+    privacy_allowed: bool = False
+    erp_data_sent: bool = False
+    fallback_used: bool = False
 
 
 class RouterAgent:
@@ -104,11 +109,38 @@ class RouterAgent:
 
     async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None) -> IntentResult:
         extracted = await self.extraction.extract_intent(message, module_context, user=user, conversation_id=conversation_id)
-        if extracted and (extracted.intent == "blocked_write" or (extracted.intent != "unsupported" and extracted.confidence >= settings.llm_confidence_threshold)):
+        if extracted and extracted.intent == "blocked_write":
+            await self._audit_routing("llm_blocked_write_detected", extracted, user, conversation_id)
             return self._from_extracted(extracted, message)
+        if extracted and extracted.intent != "unsupported" and extracted.confidence >= settings.llm_confidence_threshold:
+            return self._from_extracted(extracted, message)
+        if extracted:
+            await self._audit_routing("llm_extraction_fallback_to_rules", extracted, user, conversation_id, fallback=True)
         result = await self._classify_rules(message)
         result.extraction_method = "rules"
+        result.fallback_used = bool(extracted)
         return result
+
+    @staticmethod
+    async def _audit_routing(action: str, extracted: ExtractedIntent, user: str, conversation_id: str | None, fallback: bool = False) -> None:
+        await log_audit_event(AuditEvent(
+            user=user,
+            conversation_id=conversation_id,
+            action=action,
+            agent_name="router_agent",
+            allowed=action != "llm_blocked_write_detected",
+            risk_level="high" if action == "llm_blocked_write_detected" else "low",
+            intent=extracted.intent,
+            operation=extracted.operation,
+            doctype=extracted.doctype,
+            report_name=extracted.report_name,
+            provider=extracted.provider,
+            model=extracted.model,
+            confidence=extracted.confidence,
+            fallback_used=fallback,
+            privacy_allowed=extracted.privacy_allowed,
+            erp_data_sent=False,
+        ))
 
     async def _classify_rules(self, message: str) -> IntentResult:
         text = " ".join(message.lower().split())
@@ -197,7 +229,7 @@ class RouterAgent:
                 if extracted.date_range.get(key): filters[key]=extracted.date_range[key]
         source_type = "report" if extracted.report_name else ("doctype" if extracted.doctype else "chat_result")
         source_name = extracted.report_name or extracted.doctype or "Previous chat result"
-        return IntentResult(intent=extracted.intent,operation=extracted.operation if extracted.operation in {"create","update"} else None,doctype=extracted.doctype,report_name=extracted.report_name,record_name=extracted.record_name,data=extracted.data,filters=filters,fields=extracted.fields or None,limit=extracted.limit,confidence=extracted.confidence,write_requested=extracted.intent=="blocked_write",raw_prompt=message,file_format=extracted.file_format,source_type=source_type if extracted.intent=="generate_file" else None,source_name=source_name if extracted.intent=="generate_file" else None,date_range=extracted.date_range,widget_type=extracted.widget_type,extraction_method="vertex_gemini",llm_provider=extracted.provider or "vertex_gemini",llm_model=extracted.model,llm_confidence=extracted.confidence)
+        return IntentResult(intent=extracted.intent,operation=extracted.operation if extracted.operation in {"create","update"} else None,doctype=extracted.doctype,report_name=extracted.report_name,record_name=extracted.record_name,data=extracted.data,filters=filters,fields=extracted.fields or None,limit=extracted.limit,confidence=extracted.confidence,write_requested=extracted.intent=="blocked_write",raw_prompt=message,file_format=extracted.file_format,source_type=source_type if extracted.intent=="generate_file" else None,source_name=source_name if extracted.intent=="generate_file" else None,date_range=extracted.date_range,widget_type=extracted.widget_type,extraction_method="vertex_gemini",llm_provider=extracted.provider or "vertex_gemini",llm_model=extracted.model,llm_confidence=extracted.confidence,privacy_checked=extracted.privacy_checked,privacy_allowed=extracted.privacy_allowed,erp_data_sent=False,fallback_used=extracted.fallback_used)
 
     async def handle(self, context: AgentContext) -> AgentResult:
         intent = await self.classify(context.message)

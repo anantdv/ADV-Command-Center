@@ -19,6 +19,8 @@ __pycache__/
 backend/.env
 backend/generated_files/
 generated_files/
+knowledge_files/
+backend/knowledge_files/
 *.log
 coverage/
 .coverage

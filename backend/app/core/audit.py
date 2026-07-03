@@ -51,6 +51,15 @@ class AuditEvent(BaseModel):
     latency_ms: int | None = None
     fallback_used: bool | None = None
     privacy_blocked: bool | None = None
+    privacy_allowed: bool | None = None
+    erp_data_sent: bool = False
+    source_id: str | None = None
+    source_type: str | None = None
+    module: str | None = None
+    query_hash: str | None = None
+    citation_ids: list[str] | None = None
+    top_k: int | None = None
+    escalation_recommended: bool | None = None
     ip_address: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 

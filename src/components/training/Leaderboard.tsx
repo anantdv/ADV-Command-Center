@@ -1,0 +1,2 @@
+import type { LeaderboardEntry } from '../../types/training'
+export function Leaderboard({entries}:{entries:LeaderboardEntry[]}){return <section className="card overflow-hidden">{entries.map(entry=><div key={entry.rank} className="flex border-b px-5 py-4 last:border-0"><b className="w-12 text-slate-400">#{entry.rank}</b><span className="flex-1 text-sm font-semibold">{entry.name}</span><b className="text-xs text-indigo-600">{entry.points} pts</b></div>)}</section>}

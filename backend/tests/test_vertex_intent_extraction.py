@@ -45,7 +45,7 @@ async def test_valid_vertex_json_and_minimal_outbound_payload(llm_enabled):
     assert result.extraction_method=="vertex_gemini"
     assert result.filters=={"disabled":0}
     outbound=json.loads(provider.messages[1].content)
-    assert set(outbound)=={"user_message","module_context","current_date","allowed_doctypes","allowed_reports","allowed_file_formats","allowed_widget_types"}
+    assert set(outbound)=={"user_message","module_context","current_date","allowed_doctypes","allowed_reports","allowed_file_formats","allowed_widget_types","allowed_operations"}
     assert "records" not in provider.messages[1].content
 
 

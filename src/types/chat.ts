@@ -82,7 +82,7 @@ export type SuggestedAction = {
   disabled: boolean
   reason?: string | null
 }
-export type ExtractionMeta = { method: 'vertex_gemini' | 'rules'; confidence?: number | null; provider?: string | null; model?: string | null }
+export type ExtractionMeta = { method: 'vertex_gemini' | 'rules'; confidence?: number | null; provider?: string | null; model?: string | null; privacy_checked?: boolean; privacy_allowed?: boolean; erp_data_sent?: boolean; fallback_used?: boolean }
 
 export interface ChatMessage {
   id: string

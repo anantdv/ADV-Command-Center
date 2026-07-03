@@ -26,12 +26,18 @@ class ExtractedIntent(BaseModel):
     provider: str | None = None
     model: str | None = None
     latency_ms: int | None = None
+    privacy_checked: bool = False
+    privacy_allowed: bool = False
+    erp_data_sent: bool = False
+    fallback_used: bool = False
 
 
 def get_extracted_intent_json_schema() -> dict:
     schema = ExtractedIntent.model_json_schema()
     # Provider response schemas do not need local-only extraction metadata.
-    for field in ("extraction_method", "provider", "model", "latency_ms"):
+    for field in (
+        "extraction_method", "provider", "model", "latency_ms",
+        "privacy_checked", "privacy_allowed", "erp_data_sent", "fallback_used",
+    ):
         schema.get("properties", {}).pop(field, None)
     return schema
-

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 from pydantic import field_validator
@@ -53,6 +54,25 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_confidence_threshold: float = 0.65
     extraction_fallback_to_rules: bool = True
+    allow_unsafe_llm_config: bool = False
+    enable_knowledge_base: bool = True
+    enable_rag: bool = True
+    knowledge_storage_root: str = "./knowledge_files"
+    knowledge_vector_backend: str = "numpy"
+    knowledge_chunk_size: int = 900
+    knowledge_chunk_overlap: int = 150
+    knowledge_top_k: int = 5
+    knowledge_max_file_bytes: int = 20 * 1024 * 1024
+    embedding_provider: str = "vertex"
+    vertex_embedding_model: str = "text-embedding-005"
+    rag_llm_provider: str = "vertex_gemini"
+    rag_gemini_model: str = "gemini-2.5-flash"
+    rag_max_context_chunks: int = 5
+    rag_require_citations: bool = True
+    rag_allow_erp_data: bool = False
+    rag_allow_transaction_data: bool = False
+    rag_allow_master_data: bool = False
+    rag_fail_closed: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -100,6 +120,80 @@ class Settings(BaseSettings):
     @field_validator("llm_confidence_threshold")
     @classmethod
     def validate_confidence(cls, value: float) -> float: return min(max(value,0),1)
+
+    def validate_llm_runtime(self) -> None:
+        """Fail startup when an enabled external LLM could receive ERP data.
+
+        The development override exists only for local diagnostics. Production
+        can never opt out of these checks.
+        """
+        if not self.enable_llm_extraction:
+            return
+
+        errors: list[str] = []
+        if self.llm_provider != "vertex_gemini":
+            errors.append("LLM_PROVIDER must be vertex_gemini")
+        if self.llm_mode != "intent_only":
+            errors.append("LLM_MODE must be intent_only")
+        if not self.google_cloud_project:
+            errors.append("GOOGLE_CLOUD_PROJECT is required")
+        if not self.google_cloud_location:
+            errors.append("GOOGLE_CLOUD_LOCATION is required")
+        if not self.vertex_gemini_model:
+            errors.append("VERTEX_GEMINI_MODEL is required")
+        if not self.google_application_credentials:
+            errors.append("GOOGLE_APPLICATION_CREDENTIALS is required")
+        elif not Path(self.google_application_credentials).expanduser().is_file():
+            errors.append("GOOGLE_APPLICATION_CREDENTIALS file does not exist")
+        if not self.llm_allow_external:
+            errors.append("LLM_ALLOW_EXTERNAL must be true")
+        if self.llm_allow_erp_data:
+            errors.append("LLM_ALLOW_ERP_DATA must be false")
+        if self.llm_allow_master_data:
+            errors.append("LLM_ALLOW_MASTER_DATA must be false")
+        if self.llm_allow_transaction_data:
+            errors.append("LLM_ALLOW_TRANSACTION_DATA must be false")
+        if self.llm_allow_report_rows:
+            errors.append("LLM_ALLOW_REPORT_ROWS must be false")
+        if not self.llm_fail_closed:
+            errors.append("LLM_FAIL_CLOSED must be true")
+
+        unsafe_override = self.app_env == "development" and self.allow_unsafe_llm_config
+        if errors and not unsafe_override:
+            raise RuntimeError("Unsafe Vertex Gemini configuration: " + "; ".join(errors))
+
+    def validate_rag_runtime(self) -> None:
+        if not self.enable_rag:
+            return
+        errors: list[str] = []
+        if not self.enable_knowledge_base:
+            errors.append("ENABLE_KNOWLEDGE_BASE must be true")
+        if self.knowledge_vector_backend != "numpy":
+            errors.append("KNOWLEDGE_VECTOR_BACKEND must be numpy")
+        if self.embedding_provider != "vertex" and not self.use_mock_data:
+            errors.append("EMBEDDING_PROVIDER must be vertex")
+        if self.rag_llm_provider != "vertex_gemini" and not self.use_mock_data:
+            errors.append("RAG_LLM_PROVIDER must be vertex_gemini")
+        if self.rag_allow_erp_data or self.rag_allow_transaction_data or self.rag_allow_master_data:
+            errors.append("all RAG ERP/master/transaction sharing flags must be false")
+        if not self.rag_fail_closed:
+            errors.append("RAG_FAIL_CLOSED must be true")
+        if not self.use_mock_data:
+            if not self.google_cloud_project:
+                errors.append("GOOGLE_CLOUD_PROJECT is required for RAG")
+            if not self.google_cloud_location:
+                errors.append("GOOGLE_CLOUD_LOCATION is required for RAG")
+            if not self.vertex_embedding_model:
+                errors.append("VERTEX_EMBEDDING_MODEL is required")
+            if not self.rag_gemini_model:
+                errors.append("RAG_GEMINI_MODEL is required")
+            if not self.google_application_credentials:
+                errors.append("GOOGLE_APPLICATION_CREDENTIALS is required for RAG")
+            elif not Path(self.google_application_credentials).expanduser().is_file():
+                errors.append("GOOGLE_APPLICATION_CREDENTIALS file does not exist for RAG")
+        unsafe_override = self.app_env == "development" and self.allow_unsafe_llm_config
+        if errors and not unsafe_override:
+            raise RuntimeError("Unsafe RAG configuration: " + "; ".join(errors))
 
 
 @lru_cache

@@ -178,8 +178,17 @@ LLM_ALLOW_TRANSACTION_DATA=false
 LLM_ALLOW_REPORT_ROWS=false
 LLM_REDACTION_ENABLED=true
 LLM_FAIL_CLOSED=true
+LLM_LOG_PROMPTS=false
+LLM_LOG_RESPONSES=false
+LLM_LOG_REDACTED_PROMPTS=false
 EXTRACTION_FALLBACK_TO_RULES=true
+ALLOW_UNSAFE_LLM_CONFIG=false
 ```
+
+Startup fails when extraction is enabled without a project, location, model,
+readable credential file, `intent_only` mode, or the safe privacy flags above.
+Only local development may bypass this check with
+`ALLOW_UNSAFE_LLM_CONFIG=true`; production ignores that escape hatch.
 
 Install the updated dependencies and start the API:
 
@@ -210,6 +219,92 @@ curl -X POST http://localhost:8000/api/chat/message -H "Content-Type: applicatio
 ```
 
 The privacy gateway uses an outbound key allowlist and rejects row-shaped payloads, report results, business-record arrays, document-ID dumps, credential fields, credential assignments, and oversized prompts. Model output is then constrained by Pydantic, allowed vocabularies, field/filter sanitizers, deterministic safety checks, Frappe permissions, and the existing confirmation workflow.
+
+The only Vertex-bound JSON keys are `user_message`, `module_context`,
+`current_date`, and fixed allowlists for DocTypes, reports, file formats, widget
+types, and operations. Previous messages and all ERPNext tool output are
+excluded. ERPNext summaries shown to users are generated deterministically by
+the backend.
+
+Run the explicit privacy proof from the backend directory:
+
+```bash
+python scripts/test_privacy_gateway.py
+```
+
+Expected output:
+
+```text
+Privacy gateway blocked unsafe payload.
+```
+
+Focused hardening tests:
+
+```bash
+pytest -q tests/test_llm_privacy_gateway.py \
+  tests/test_vertex_intent_extraction.py \
+  tests/test_vertex_end_to_end.py \
+  tests/test_no_erp_data_to_llm.py
+```
+
+## Private Training and Support knowledge base
+
+Knowledge metadata, extracted text, chunks, and NumPy embeddings are stored
+under `KNOWLEDGE_STORAGE_ROOT`. Sources are always created as drafts. A System
+Manager or Training Manager must approve and ingest them before search or RAG.
+Role and module filters run before retrieved chunks are sent to Vertex.
+
+```env
+ENABLE_KNOWLEDGE_BASE=true
+ENABLE_RAG=true
+KNOWLEDGE_STORAGE_ROOT=./knowledge_files
+KNOWLEDGE_VECTOR_BACKEND=numpy
+KNOWLEDGE_CHUNK_SIZE=900
+KNOWLEDGE_CHUNK_OVERLAP=150
+KNOWLEDGE_TOP_K=5
+EMBEDDING_PROVIDER=vertex
+VERTEX_EMBEDDING_MODEL=text-embedding-005
+RAG_LLM_PROVIDER=vertex_gemini
+RAG_GEMINI_MODEL=gemini-2.5-flash
+RAG_MAX_CONTEXT_CHUNKS=5
+RAG_REQUIRE_CITATIONS=true
+RAG_ALLOW_ERP_DATA=false
+RAG_ALLOW_TRANSACTION_DATA=false
+RAG_ALLOW_MASTER_DATA=false
+RAG_FAIL_CLOSED=true
+```
+
+Create, approve, and ingest an SOP:
+
+```bash
+curl -X POST http://localhost:8000/api/knowledge/sources -H "Content-Type: application/json" \
+  -d '{"title":"Sales Invoice Submission SOP","sourceType":"sop_document","module":"Accounting","content":"To submit a Sales Invoice, verify status, taxes, required fields, and your Submit permission.","allowedRoles":["Accounts User","Accounts Manager"]}'
+
+curl -X POST http://localhost:8000/api/knowledge/sources/src_abc123/approve
+curl -X POST http://localhost:8000/api/knowledge/sources/src_abc123/ingest
+```
+
+Ask for a cited answer and use Support AI:
+
+```bash
+curl -X POST http://localhost:8000/api/knowledge/ask -H "Content-Type: application/json" \
+  -d '{"question":"How do I submit a Sales Invoice?","module":"Accounting"}'
+
+curl -X POST http://localhost:8000/api/support/ai-help -H "Content-Type: application/json" \
+  -d '{"question":"I cannot submit a Sales Invoice. What should I check?","module":"Accounting"}'
+```
+
+Generate an assessment from an approved, ingested source:
+
+```bash
+curl -X POST http://localhost:8000/api/training/assessments/generate -H "Content-Type: application/json" \
+  -d '{"sourceId":"src_abc123","questionCount":5,"difficulty":"basic"}'
+```
+
+The RAG gateway accepts only the user question, approved chunks, citation IDs,
+and source titles. ERP document identifiers, row-shaped financial data,
+credentials, sessions, payroll content, unapproved sources, and unauthorized
+chunks fail closed. Vertex output without valid citations becomes an escalation.
 
 ## File generation and AI Library
 

@@ -63,3 +63,12 @@ for name, description, permission in [
     ("cancel_crud_action", "Cancel a pending controlled CRUD confirmation", "write"),
 ]:
     registry.register(ToolDefinition(name=name, description=description, risk_level="medium", requires_confirmation=name == "confirm_crud_action", permission_required=permission, input_schema={"type": "object"}))
+
+for name, description, permission in [
+    ("search_approved_knowledge", "Search role-filtered approved private knowledge", "read"),
+    ("answer_from_approved_knowledge", "Draft a cited answer from approved knowledge", "read"),
+    ("generate_training_assessment", "Generate a quiz from approved training chunks", "training"),
+    ("answer_support_question", "Answer support questions from approved knowledge", "read"),
+    ("create_support_ticket", "Escalate unresolved help through the Frappe support API", "create"),
+]:
+    registry.register(ToolDefinition(name=name,description=description,risk_level="medium" if permission in {"training","create"} else "low",requires_confirmation=permission=="create",permission_required=permission,input_schema={"type":"object"}))

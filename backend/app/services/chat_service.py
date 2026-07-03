@@ -107,8 +107,16 @@ class ChatService:
         else:
             response = self._unsupported_response(conversation.id)
 
-        if settings.app_env == "development":
-            response.extraction = ExtractionMeta(method=intent.extraction_method, confidence=intent.llm_confidence or intent.confidence, provider=intent.llm_provider, model=intent.llm_model)
+        response.extraction = ExtractionMeta(
+            method=intent.extraction_method,
+            confidence=intent.llm_confidence or intent.confidence,
+            provider=intent.llm_provider,
+            model=intent.llm_model,
+            privacy_checked=intent.privacy_checked,
+            privacy_allowed=intent.privacy_allowed,
+            erp_data_sent=False,
+            fallback_used=intent.fallback_used,
+        )
         await self._persist_response(response)
         await self._audit(user, request.message, intent, response, safety)
         return response
@@ -218,7 +226,7 @@ class ChatService:
             risk_level=permission.risk_level if permission else safety.risk_level,
             input_summary=tool_part.input_summary if tool_part else intent.intent,
             output_summary=tool_part.output_summary if tool_part else response.content[:200],
-            prompt=(f"{intent.operation} {intent.doctype}; fields={','.join((intent.data or {}).keys())}" if intent.intent in {"crud_create", "crud_update"} else self._safe_prompt(prompt)),
+            prompt=self._audit_prompt(prompt, intent),
             intent=intent.intent,
             filters=intent.filters or {},
             record_count=response.source.record_count if response.source else 0,
@@ -226,6 +234,9 @@ class ChatService:
             model=intent.llm_model,
             extraction_method=intent.extraction_method,
             confidence=intent.llm_confidence or intent.confidence,
+            privacy_allowed=intent.privacy_allowed if intent.privacy_checked else None,
+            erp_data_sent=False,
+            fallback_used=intent.fallback_used,
         ))
 
     @staticmethod
@@ -282,6 +293,14 @@ class ChatService:
         if any(term in lowered for term in ("password", "api key", "api secret", "token", "otp")):
             return "[REDACTED SENSITIVE PROMPT]"
         return prompt[:300]
+
+    @classmethod
+    def _audit_prompt(cls, prompt: str, intent: IntentResult) -> str | None:
+        if intent.intent in {"crud_create", "crud_update"}:
+            return f"{intent.operation} {intent.doctype}; fields={','.join((intent.data or {}).keys())}"
+        if not (settings.llm_log_prompts or settings.llm_log_redacted_prompts):
+            return None
+        return cls._safe_prompt(prompt)
 
     @staticmethod
     def _attach_previous_result(intent: IntentResult, messages: list[ChatMessage]) -> None:

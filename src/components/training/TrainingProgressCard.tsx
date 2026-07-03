@@ -1,0 +1,1 @@
+export function TrainingProgressCard({label,value}:{label:string;value:number}){return <div className="card p-4"><div className="flex justify-between text-xs font-bold"><span>{label}</span><span>{value}%</span></div><div className="mt-3 h-2 rounded bg-slate-100"><div className="h-2 rounded bg-indigo-600" style={{width:`${value}%`}}/></div></div>}

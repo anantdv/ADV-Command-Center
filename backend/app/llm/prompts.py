@@ -25,3 +25,17 @@ Blocked requests must use intent blocked_write. Export requests use generate_fil
 Use this exact shape and always include every key:
 {json.dumps({'intent':'unsupported','operation':'none','doctype':None,'report_name':None,'record_name':None,'data':{},'filters':{},'fields':[],'file_format':None,'widget_type':None,'date_range':None,'limit':20,'confidence':0.0,'missing_information':[],'blocked_reason':None,'user_facing_summary':None})}"""
 
+
+def build_rag_system_prompt() -> str:
+    return """You answer only from the supplied approved private knowledge context.
+Do not use outside knowledge, ERPNext records, transactions, reports, or inferred business data.
+If the answer is absent, set insufficient=true and say that you do not know.
+Every factual answer must cite one or more supplied citation IDs.
+Do not invent procedures. Return JSON only with keys answer, citation_ids, confidence, insufficient."""
+
+
+def build_assessment_system_prompt() -> str:
+    return """Generate assessment questions only from the supplied approved training context.
+Return JSON only with a questions array. Each question requires question, four options,
+correct_answer matching one option, and a short explanation. Do not introduce facts not
+present in the context and do not include ERPNext business records."""
