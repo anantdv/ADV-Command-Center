@@ -9,7 +9,7 @@ from app.services.erpnext_service import ERPNextService
 from app.services.report_service import ReportService
 from app.utils.datetime import utc_now
 from app.utils.table_formatter import build_table_part
-from app.utils.chart_builder import infer_widget_chart_config
+from app.utils.chart_builder import infer_widget_chart_config, normalize_chart_widget_data
 
 
 class WidgetDataBuilder:
@@ -67,7 +67,8 @@ class WidgetDataBuilder:
             grouped[category] += WidgetDataBuilder._number(row.get(aggregate_field)) or 1
         data = [{group_by: key, value_key: value} for key, value in sorted(grouped.items(), key=lambda item: item[1], reverse=True)[:12]]
         config = chart_config or infer_widget_chart_config(data, group_by, value_key)
-        return data, config
+        normalized = normalize_chart_widget_data(widget_type, data, config)
+        return normalized["data"], normalized["chart_config"]
 
     @staticmethod
     def _category_key(rows: list[dict[str, Any]]) -> str:

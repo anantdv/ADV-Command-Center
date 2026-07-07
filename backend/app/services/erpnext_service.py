@@ -75,12 +75,18 @@ class ERPNextService:
         cookies: dict | None = None,
     ) -> DoctypeSchema:
         if settings.use_mock_data:
+            mock_fields = {
+                "Customer": ["name", "customer_name", "customer_group", "territory", "disabled"],
+                "Supplier": ["name", "supplier_name", "supplier_group", "disabled"],
+                "Item": ["name", "item_name", "item_group", "stock_uom", "disabled"],
+                "Sales Invoice": ["name", "customer", "posting_date", "grand_total", "outstanding_amount", "status"],
+                "Purchase Invoice": ["name", "supplier", "posting_date", "grand_total", "outstanding_amount", "status"],
+                "Sales Order": ["name", "customer", "transaction_date", "grand_total", "status"],
+                "Purchase Order": ["name", "supplier", "transaction_date", "grand_total", "status"],
+            }.get(doctype, ["name", "status"])
             return DoctypeSchema(
                 doctype=doctype,
-                fields=[
-                    FieldSchema(fieldname="name", label="ID", fieldtype="Data", required=True),
-                    FieldSchema(fieldname="status", label="Status", fieldtype="Select"),
-                ],
+                fields=[FieldSchema(fieldname=field, label=field.replace("_", " ").title(), fieldtype="Currency" if any(part in field for part in ("amount", "total")) else "Data", required=field == "name") for field in mock_fields],
                 permissions=PermissionMeta(**FULL_PERMISSION),
             )
         data = self._unwrap(await frappe_schema.get_doctype_schema(self.client, doctype, cookies))

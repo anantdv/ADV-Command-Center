@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 from app.dependencies import CurrentUserDep, get_frappe_cookies
 from app.schemas.common import ApiResponse
 from app.schemas.dashboard import DashboardOverviewResponse, DashboardWidgetCreateRequest, DashboardWidgetData, DashboardWidgetReorderRequest, DashboardWidgetUpdateRequest
+from app.utils.chart_builder import normalize_chart_widget_data
 from app.services.dashboard_service import dashboard_service
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -38,3 +39,9 @@ async def delete_widget(widget_id: str, request: Request, user: CurrentUserDep):
 
 @router.post("/widgets/reorder", response_model=ApiResponse[bool])
 async def reorder_widgets(payload: DashboardWidgetReorderRequest, request: Request, user: CurrentUserDep): return ApiResponse(data=await dashboard_service.reorder_widgets(payload.layouts, get_frappe_cookies(request), user.user, user.roles))
+
+
+@router.post("/widgets/debug-chart", response_model=ApiResponse[dict])
+async def debug_chart(payload: dict) -> ApiResponse[dict]:
+    normalized = normalize_chart_widget_data(payload.get("widget_type") or "bar_chart", payload.get("rows") or [], payload.get("chart_config"))
+    return ApiResponse(data={**normalized, "normalized": True, "warnings": []})

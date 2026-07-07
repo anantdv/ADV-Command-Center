@@ -1,0 +1,1 @@
+export function SavedReportViewDialog(){return <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs text-slate-500">Saved column views will be available in the next release.</div>}

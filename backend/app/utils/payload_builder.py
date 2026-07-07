@@ -32,6 +32,20 @@ class PayloadBuilder:
             party=re.sub(r"^(?:for\s+)?(?:customer\s+)?","",base,flags=re.I).strip();data.update({"quotation_to":"Customer","party_name":party})
         elif doctype == "Opportunity":
             party=re.sub(r"^(?:for\s+)?(?:customer\s+)?","",base,flags=re.I).strip();data.update({"opportunity_from":"Customer","party_name":party})
+        elif doctype in {"Sales Order", "Sales Invoice", "Delivery Note"}:
+            party = cls._party_after(lower, text, "customer")
+            if party: data["customer"] = party
+        elif doctype in {"Purchase Order", "Purchase Invoice", "Purchase Receipt"}:
+            party = cls._party_after(lower, text, "supplier")
+            if party: data["supplier"] = party
+        elif doctype == "Material Request":
+            data["material_request_type"] = "Purchase"
+        elif doctype == "Project":
+            data["project_name"] = base
+        elif doctype == "Task":
+            data["subject"] = base
+        cls._extract_items(text, data)
+        cls._extract_document_refs(text, data)
         cls._extract_fields(text,data)
         return {key:value.strip() if isinstance(value,str) else value for key,value in data.items() if value not in (None,"")}
 
@@ -50,3 +64,42 @@ class PayloadBuilder:
         for field,pattern in cls.FIELD_PATTERNS.items():
             match=re.search(pattern,text,re.I)
             if match: data[field]=match.group(1).strip()
+
+    @staticmethod
+    def _party_after(lower: str, text: str, keyword: str) -> str | None:
+        match = re.search(rf"\b{keyword}\s+(.+?)(?=\s+(?:for|with|bill number|po number|containing|items?)\b|$)", text, re.I)
+        if match:
+            return match.group(1).strip()
+        if f" for " in lower:
+            tail = re.split(r"\bfor\b", text, maxsplit=1, flags=re.I)[-1]
+            tail = re.split(r"\b(?:with|containing|items?)\b", tail, maxsplit=1, flags=re.I)[0]
+            return re.sub(rf"^(?:{keyword}\s+)?", "", tail.strip(), flags=re.I).strip() or None
+        return None
+
+    @staticmethod
+    def _extract_items(text: str, data: dict[str, Any]) -> None:
+        matches = re.findall(
+            r"(?:(\d+(?:\.\d+)?)\s+)?((?:ITEM|item)[-\w]+)(?:\s+(?:at|@)\s+([\d,.]+))?",
+            text,
+            re.I,
+        )
+        if not matches:
+            return
+        items = []
+        for qty, code, rate in matches:
+            q = float(qty) if qty else 1
+            r = float(rate.replace(",", "")) if rate else 0
+            items.append({"item_code": code.upper(), "qty": q, "rate": r, "amount": q * r})
+        data["items"] = items
+
+    @staticmethod
+    def _extract_document_refs(text: str, data: dict[str, Any]) -> None:
+        refs = {
+            "bill_no": r"bill (?:number|no)\s+([A-Z0-9-]+)",
+            "po_no": r"po (?:number|no)\s+([A-Z0-9-]+)",
+            "currency": r"currency\s+([A-Z]{3})",
+        }
+        for field, pattern in refs.items():
+            match = re.search(pattern, text, re.I)
+            if match:
+                data[field] = match.group(1).strip().upper()

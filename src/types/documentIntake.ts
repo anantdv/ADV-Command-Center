@@ -1,0 +1,5 @@
+export type DocumentUploadResponse={intake_id:string;file_id:string;file_name:string;mime_type:string;status:'uploaded'|'processing'|'processed'|'failed';message:string}
+export type OCRResult={intake_id:string;extracted_text_preview:string;full_text_available:boolean;confidence?:number|null;page_count?:number|null}
+export type ExtractedLineItem={item_code?:string|null;item_name?:string|null;description?:string|null;qty?:number|null;uom?:string|null;rate?:number|null;amount?:number|null}
+export type ExtractedDocumentFields={source_document_type:string;target_doctype?:string|null;supplier?:string|null;customer?:string|null;bill_no?:string|null;bill_date?:string|null;po_no?:string|null;po_date?:string|null;currency?:string|null;grand_total?:number|null;items:ExtractedLineItem[];warnings:string[]}
+export type DocumentMappingPreview={intake_id:string;source_document_type:string;target_doctype:string;extracted_fields:ExtractedDocumentFields;draft_payload:Record<string,unknown>;missing_fields:Array<Record<string,unknown>>;warnings:string[];confirmation_required:boolean;confirmation_id?:string|null}

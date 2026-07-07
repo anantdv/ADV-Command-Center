@@ -1,0 +1,9 @@
+import { useMemo, useState } from 'react'
+import type { ReportColumn } from '../../types/reportBuilder'
+
+export function ColumnSelector({columns,selected,onApply}:{columns:ReportColumn[];selected:string[];onApply:(columns:string[])=>void}){
+ const [query,setQuery]=useState('');const [draft,setDraft]=useState<string[]>(selected.length?selected:columns.slice(0,8).map(column=>column.key))
+ const filtered=useMemo(()=>columns.filter(column=>(column.label+' '+column.key).toLowerCase().includes(query.toLowerCase())),[columns,query])
+ const toggle=(key:string)=>setDraft(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])
+ return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2"><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search columns..." className="input h-9 max-w-xs text-sm"/><button className="btn-secondary h-9 px-3 text-xs" onClick={()=>setDraft(columns.map(column=>column.key))}>Select all</button><button className="btn-secondary h-9 px-3 text-xs" onClick={()=>setDraft([])}>Clear</button><button className="btn-primary h-9 px-3 text-xs" onClick={()=>onApply(draft)}>Apply columns</button></div><div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">{filtered.map(column=><label key={column.key} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"><input type="checkbox" checked={draft.includes(column.key)} onChange={()=>toggle(column.key)} className="rounded border-slate-300"/><span className="truncate">{column.label}</span><span className="ml-auto text-[10px] text-slate-400">{column.fieldtype}</span></label>)}</div></div>
+}

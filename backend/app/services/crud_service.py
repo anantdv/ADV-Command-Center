@@ -7,7 +7,9 @@ from app.frappe.client import FrappeClient
 from app.schemas.crud import ConfirmCrudResponse, CrudPreviewResponse, MissingField
 from app.services.erpnext_service import ERPNextService
 from app.utils.confirmation_store import ConfirmationStore, confirmation_store
+from app.utils.doctype_defaults import apply_document_defaults
 from app.utils.field_mapper import ALLOWED_CREATE_FIELDS, ALLOWED_UPDATE_FIELDS, FIELD_LABELS, FIELD_OPTIONS, filter_write_data, missing_required_fields
+from app.utils.item_table_builder import item_warnings, normalize_items_for_doctype, strip_internal_item_markers
 
 
 class CrudService:
@@ -20,17 +22,28 @@ class CrudService:
         if doctype not in ALLOWED_CREATE_FIELDS: raise AppError(f"Creating {doctype} is not enabled in this stage.", 422)
         filtered, blocked = filter_write_data(doctype, "create", data)
         if blocked: raise AppError("One or more fields are not allowed for draft creation.", 422, {"blocked_fields":blocked})
+        warnings: list[str] = []
+        if "items" in filtered:
+            filtered["items"] = normalize_items_for_doctype(doctype, filtered.get("items") or [])
+            warnings.extend(item_warnings(filtered["items"]))
+            filtered["items"] = strip_internal_item_markers(filtered["items"])
+        try:
+            user_context = (await self.erp.get_current_user_context(cookies)).model_dump()
+        except Exception:
+            user_context = None
+        filtered = apply_document_defaults(doctype, filtered, user_context)
+        filtered.pop("docstatus", None)
         missing = self._missing(doctype, filtered)
         if missing:
             await self._audit("crud_missing_fields", user, "create", doctype, None, filtered, [], conversation_id=conversation_id, status="missing_fields")
-            return CrudPreviewResponse(operation="create", doctype=doctype, data=filtered, missing_fields=missing, confirmation_required=False)
+            return CrudPreviewResponse(operation="create", doctype=doctype, data=filtered, missing_fields=missing, confirmation_required=False, warnings=warnings)
         permission = await self.erp.check_permission("create", doctype, fields=list(filtered), payload=filtered, cookies=cookies)
         if not permission.allowed:
             await self._audit("crud_permission_denied", user, "create", doctype, None, filtered, permission.blocked_fields, conversation_id=conversation_id, status="denied")
             raise PermissionDenied(permission.reason or f"You do not have permission to create {doctype}.")
         confirmation_id = self.confirmations.create({"operation":"create","doctype":doctype,"record_name":None,"data":filtered,"user":user,"conversation_id":conversation_id,"message_id":message_id})
         await self._audit("crud_confirmation_created", user, "create", doctype, None, filtered, [], confirmation_id, conversation_id, "pending")
-        return CrudPreviewResponse(operation="create", doctype=doctype, data=filtered, after_data=filtered, permission=permission.model_dump(), confirmation_id=confirmation_id)
+        return CrudPreviewResponse(operation="create", doctype=doctype, data=filtered, after_data=filtered, permission=permission.model_dump(), confirmation_id=confirmation_id, warnings=warnings)
 
     async def prepare_update(self, doctype: str, record_name: str, data: dict, conversation_id: str | None = None, message_id: str | None = None, cookies: dict | None = None, user: str = "unknown") -> CrudPreviewResponse:
         if doctype not in ALLOWED_UPDATE_FIELDS: raise AppError(f"Updating {doctype} is not enabled in this stage.", 422)

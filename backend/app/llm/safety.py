@@ -37,7 +37,7 @@ def validate_extracted_intent(intent: ExtractedIntent) -> ExtractedIntent:
         values.intent = "blocked_write"; values.operation = "blocked"
     if values.intent == "crud_update" and values.doctype not in ALLOWED_UPDATE_DOCTYPES:
         values.intent = "blocked_write"; values.operation = "blocked"
-    blocked = set(BLOCKED_WRITE_FIELDS)
+    blocked = set(BLOCKED_WRITE_FIELDS) | {"docstatus"}
     values.fields = [field for field in values.fields if not _sensitive(field) and field not in blocked]
     values.data = _sanitize_mapping(values.data, blocked)
     values.filters = _sanitize_filters(values.filters)

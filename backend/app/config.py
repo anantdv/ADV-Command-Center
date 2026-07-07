@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     rag_allow_transaction_data: bool = False
     rag_allow_master_data: bool = False
     rag_fail_closed: bool = True
+    enable_ocr: bool = True
+    enable_ocr_llm_extraction: bool = False
+    ocr_max_file_size_mb: int = 10
+    ocr_max_pages: int = 10
+    ocr_language: str = "eng"
+    document_intake_storage_root: str = "./document_intake_files"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

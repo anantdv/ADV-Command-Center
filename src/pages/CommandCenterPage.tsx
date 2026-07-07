@@ -8,8 +8,12 @@ import { ErrorState } from '../components/common/ErrorState'
 import { LoadingState } from '../components/common/LoadingState'
 import { TinniAvatar } from '../components/common/BrandLogo'
 import { PinToDashboardButton } from '../components/chat/PinToDashboardButton'
+import { DocumentMappingPreview } from '../components/document-intake/DocumentMappingPreview'
+import { DocumentUploadPanel } from '../components/document-intake/DocumentUploadPanel'
+import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
 import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
+import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
 
 const prompts = [
   'Show overdue sales invoices.',
@@ -92,7 +96,8 @@ export function CommandCenterPage() {
 }
 
 function EmptyCommandCenter({onPrompt}:{onPrompt:(prompt:string)=>void}){
-  return <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-28 pt-12"><TinniAvatar className="size-16 shadow-lg shadow-indigo-200"/><h1 className="mt-5 font-[Manrope] text-2xl font-bold">What would you like to do?</h1><p className="mt-2 text-center text-sm text-slate-500">Ask Tinni about ERPNext data, or prepare a controlled draft action for review.</p><div className="mt-8 grid w-full gap-3 sm:grid-cols-2">{prompts.map((prompt,index)=><button onClick={()=>onPrompt(prompt)} key={prompt} className="card flex items-start gap-3 p-4 text-left text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">{index%2?<LayoutDashboard size={15}/>:<Sparkles size={15}/>}</span><span>{prompt}</span></button>)}</div></div>
+  const [preview,setPreview]=useState<DocumentPreview|null>(null);const confirm=useConfirmDocumentDraft()
+  return <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-28 pt-12"><TinniAvatar className="size-16 shadow-lg shadow-indigo-200"/><h1 className="mt-5 font-[Manrope] text-2xl font-bold">What would you like to do?</h1><p className="mt-2 text-center text-sm text-slate-500">Ask Tinni about ERPNext data, prepare a controlled draft action, or upload a business document for OCR intake.</p><div className="mt-8 grid w-full gap-3 sm:grid-cols-2">{prompts.map((prompt,index)=><button onClick={()=>onPrompt(prompt)} key={prompt} className="card flex items-start gap-3 p-4 text-left text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">{index%2?<LayoutDashboard size={15}/>:<Sparkles size={15}/>}</span><span>{prompt}</span></button>)}</div><div className="mt-6 w-full">{preview?<DocumentMappingPreview preview={preview} busy={confirm.isPending} onConfirm={()=>confirm.mutate(preview.intake_id)} onCancel={()=>setPreview(null)}/>:<DocumentUploadPanel onProcessed={setPreview}/>}</div></div>
 }
 
 function HistoryMessage({message,onAction}:{message:ChatMessage;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void}){

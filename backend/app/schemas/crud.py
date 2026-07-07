@@ -29,6 +29,7 @@ class CrudPreviewResponse(BaseModel):
     before_data: dict[str, Any] | None = None
     after_data: dict[str, Any] | None = None
     permission: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
     risk_level: Literal["medium", "high"] = "medium"
     confirmation_required: bool = True
     confirmation_id: str | None = None

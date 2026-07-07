@@ -72,3 +72,13 @@ for name, description, permission in [
     ("create_support_ticket", "Escalate unresolved help through the Frappe support API", "create"),
 ]:
     registry.register(ToolDefinition(name=name,description=description,risk_level="medium" if permission in {"training","create"} else "low",requires_confirmation=permission=="create",permission_required=permission,input_schema={"type":"object"}))
+
+for name, description, permission in [
+    ("upload_document_intake", "Upload a private business document for local OCR intake", "create"),
+    ("extract_ocr_text", "Extract text locally from an uploaded PDF/image", "read"),
+    ("build_document_mapping_preview", "Map extracted fields to a draft ERPNext document preview", "create"),
+    ("get_report_available_columns", "Resolve readable columns for a DocType/report", "read"),
+    ("run_report_with_columns", "Run a permission-aware report with selected columns", "read"),
+    ("diagnose_report", "Diagnose report execution and response normalization", "read"),
+]:
+    registry.register(ToolDefinition(name=name,description=description,risk_level="medium" if permission=="create" else "low",requires_confirmation=False,permission_required=permission,input_schema={"type":"object"}))

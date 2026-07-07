@@ -55,6 +55,42 @@ def infer_widget_chart_config(rows: list[dict[str, Any]], group_by: str | None =
     return {"x_key": x_key, "y_key": y_key}
 
 
+def normalize_chart_widget_data(widget_type: str, rows: list[dict[str, Any]], chart_config: dict | None = None) -> dict[str, Any]:
+    """Return the stable chart widget contract consumed by React/Recharts."""
+    chart_type = {
+        "bar_chart": "bar",
+        "line_chart": "line",
+        "pie_chart": "pie",
+        "donut_chart": "donut",
+        "area_chart": "area",
+    }.get(widget_type, widget_type.replace("_chart", ""))
+    data = list(rows or [])
+    config = dict(chart_config or {})
+    if chart_type in {"bar", "line", "area"}:
+        config.setdefault("chart_type", chart_type)
+        config.setdefault("x_key", "label")
+        config.setdefault("y_key", "value")
+        config.setdefault("series", [{"data_key": config["y_key"], "label": "Count"}])
+    elif chart_type in {"pie", "donut"}:
+        config.setdefault("chart_type", chart_type)
+        config.setdefault("name_key", "label")
+        config.setdefault("value_key", "value")
+    else:
+        config.setdefault("chart_type", chart_type or "bar")
+    normalized = []
+    for row in data:
+        if "label" in row and "value" in row:
+            normalized.append({"label": row.get("label"), "value": _number(row.get("value")) or 0})
+            continue
+        keys = list(row)
+        preferred_label = config.get("x_key") or config.get("name_key")
+        label_key = preferred_label if preferred_label in row else next((key for key in keys if _number(row.get(key)) is None), keys[0] if keys else "label")
+        preferred_value = config.get("y_key") or config.get("value_key")
+        value_key = preferred_value if preferred_value in row else next((key for key in keys if key != label_key and _number(row.get(key)) is not None), None)
+        normalized.append({"label": str(row.get(label_key) or "Unknown"), "value": _number(row.get(value_key)) if value_key else 0})
+    return {"data": normalized, "chart_config": config}
+
+
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None

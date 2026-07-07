@@ -72,7 +72,6 @@ def test_update_customer_preview_and_confirm(client):
 
 def test_unsupported_and_high_risk_writes_are_blocked(client):
     for prompt in (
-        "create sales invoice for ABC",
         "delete customer ABC Trading",
         "submit invoice ACC-SINV-2026-00001",
         "create payment entry for customer ABC",

@@ -375,7 +375,98 @@ curl -X POST http://localhost:8000/api/chat/actions/pin-to-dashboard \
   -d '{"conversation_id":"conv_123","message_id":"msg_456","title":"Pinned Overdue Sales Invoices","widget_type":"table","source":{"source_type":"doctype","doctype":"Sales Invoice","filters":{"status":"Overdue"},"fields":["name","customer","posting_date","grand_total","outstanding_amount","status"]}}'
 ```
 
+Chart widgets return a normalized Recharts-safe contract:
+
+```json
+{
+  "data": [{"label": "Paid", "value": 42}],
+  "chart_config": {"chart_type": "bar", "x_key": "label", "y_key": "value"}
+}
+```
+
+Debug chart normalization:
+
+```bash
+curl -X POST http://localhost:8000/api/dashboard/widgets/debug-chart \
+  -H "Content-Type: application/json" \
+  -d '{"widget_type":"bar_chart","rows":[{"status":"Paid","count":42}]}'
+```
+
 The FastAPI metadata fallback is user-scoped and stored in the existing SQLAlchemy dashboard tables. Companion method constants for list/get/update/delete/reorder are prepared; migrate this repository to Frappe `AI Dashboard Widget` once those methods are deployed.
+
+## Expanded draft creation, OCR intake, and report columns
+
+Supported draft-only DocTypes are `Customer`, `Supplier`, `Item`, `Lead`,
+`Opportunity`, `Quotation`, `Sales Order`, `Purchase Order`, `Sales Invoice`,
+`Purchase Invoice`, `Delivery Note`, `Purchase Receipt`, `Material Request`,
+`Issue`, `Project`, and `Task`. Every create is previewed first and executed
+only after explicit confirmation. Submit, cancel, delete, Payment Entry,
+Journal Entry, payroll, and bulk actions remain blocked.
+
+OCR intake is local by default. Install system OCR packages on Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
+```
+
+Environment:
+
+```env
+ENABLE_OCR=true
+ENABLE_OCR_LLM_EXTRACTION=false
+OCR_MAX_FILE_SIZE_MB=10
+OCR_MAX_PAGES=10
+OCR_LANGUAGE=eng
+DOCUMENT_INTAKE_STORAGE_ROOT=./document_intake_files
+```
+
+Draft Sales Order:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"create sales order for customer ABC Trading for 5 ITEM-001 at 1200 each"}'
+```
+
+Draft Purchase Invoice:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"create purchase invoice for supplier Pacific Hardware bill number INV-1001 for 10 ITEM-001 at 500 each"}'
+```
+
+Upload and process a supplier invoice:
+
+```bash
+curl -X POST http://localhost:8000/api/document-intake/upload \
+  -F "file=@supplier_invoice.pdf"
+
+curl -X POST http://localhost:8000/api/document-intake/intake_abc123/process
+
+curl http://localhost:8000/api/document-intake/intake_abc123/mapping-preview
+
+curl -X POST http://localhost:8000/api/document-intake/intake_abc123/confirm-create
+```
+
+Report column customization:
+
+```bash
+curl "http://localhost:8000/api/reports/available-columns?source_type=doctype&source_name=Sales%20Invoice"
+
+curl -X POST http://localhost:8000/api/reports/run-with-columns \
+  -H "Content-Type: application/json" \
+  -d '{"source_type":"doctype","source_name":"Sales Invoice","columns":["name","customer","posting_date","grand_total","status"],"filters":{"status":"Overdue"},"limit":100}'
+```
+
+Diagnose Stock Balance:
+
+```bash
+curl -X POST http://localhost:8000/api/reports/diagnose \
+  -H "Content-Type: application/json" \
+  -d '{"report_name":"Stock Balance"}'
+```
 
 ## Communication Center
 
