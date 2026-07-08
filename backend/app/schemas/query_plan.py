@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.aggregation import AggregationPlan
+
 
 QueryIntent = Literal[
     "list_records",
@@ -51,3 +53,6 @@ class QueryPlan(BaseModel):
     extraction_method: Literal["vertex_gemini", "rules", "hybrid"] = "rules"
     normalized_filters: dict[str, Any] = Field(default_factory=dict)
     permission_checked: bool = False
+    aggregation: AggregationPlan | None = None
+    expects_chart: bool = False
+    expects_aggregation: bool = False

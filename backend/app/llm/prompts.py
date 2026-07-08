@@ -29,6 +29,13 @@ For "above 50000", return filters {{"grand_total":[">",50000]}}. For "below 5000
 For "unpaid invoices", use doctype "Sales Invoice" unless user says purchase invoice, and filters {{"status":["in",["Unpaid","Overdue"]]}}.
 For "unpaid purchase invoices", use doctype "Purchase Invoice" and filters {{"status":["in",["Unpaid","Overdue"]]}}.
 For "purchase orders valued between 40000 to 50000", use doctype "Purchase Order" and filters {{"grand_total":["between",[40000,50000]]}}.
+Aggregation planning hints:
+- "monthly sales trend" means Sales Invoice grouped by posting_date month, sum grand_total, line chart.
+- "outstanding" on invoices means outstanding_amount.
+- "top customers by outstanding" means Sales Invoice grouped by customer, sum outstanding_amount, sorted descending.
+- "purchase orders by supplier" means Purchase Order grouped by supplier, sum grand_total.
+- "sales orders by status as pie chart" means Sales Order grouped by status and pie chart.
+- "by item group" for Item means count by item_group unless sales value is requested.
 Use this exact shape and always include every key:
 {json.dumps({'intent':'unsupported','operation':'none','doctype':None,'report_name':None,'record_name':None,'data':{},'filters':{},'fields':[],'file_format':None,'widget_type':None,'date_range':None,'limit':20,'confidence':0.0,'missing_information':[],'blocked_reason':None,'user_facing_summary':None})}"""
 
@@ -53,6 +60,7 @@ Rules:
 - "above 50000" means grand_total > 50000. "below 50000" means grand_total < 50000.
 - "unpaid invoices" means Sales Invoice with status in ["Unpaid", "Overdue"].
 - "overdue invoices" means Sales Invoice with status "Overdue".
+- Aggregation requests include trends, totals by field, top-N rankings, and chart outputs. Do not invent rows.
 Return this JSON shape and include every key:
 {json.dumps({'intent':'list_records','operation':'read','doctype':None,'report_name':None,'record_name':None,'filters':{},'fields':[],'date_range':None,'order_by':None,'limit':50,'data':{},'file_format':None,'widget_type':None,'confidence':0.0,'missing_information':[],'blocked_reason':None,'user_facing_summary':None})}"""
 

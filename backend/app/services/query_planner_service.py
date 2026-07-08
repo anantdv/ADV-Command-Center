@@ -14,6 +14,7 @@ from app.utils.doctype_resolver import resolve_doctype
 from app.utils.entity_extractor import extract_entity_filters, extract_record_name
 from app.utils.field_alias_mapper import get_default_fields, map_field_alias
 from app.utils.query_plan_validator import validate_query_plan
+from app.utils.aggregation_planner import build_rule_based_aggregation_plan, detect_aggregation_intent
 
 REPORT_ALIASES = {
     "stock balance": "Stock Balance",
@@ -30,6 +31,7 @@ WRITE_WORDS = (
     "create", "add", "update", "change", "delete", "remove", "submit", "cancel",
     "approve", "reject", "make payment", "journal entry", "send email", "email customer",
 )
+SQL_PATTERN = re.compile(r"\b(select|insert|update|delete|drop|alter|truncate|union|from\s+tab)\b|;|--", re.IGNORECASE)
 
 
 class QueryPlannerService:
@@ -49,6 +51,10 @@ class QueryPlannerService:
     ) -> QueryPlan:
         await self._audit("query_plan_started", message, user, conversation_id)
         text = " ".join(message.lower().split())
+        if SQL_PATTERN.search(message):
+            plan = QueryPlan(intent="unsupported", operation="none", confidence=1.0, blocked_reason="SQL-like query content is not allowed.")
+            await self._audit("query_plan_failed", message, user, conversation_id, plan)
+            return plan
         if self._write_requested(text):
             plan = QueryPlan(intent="blocked_write", operation="blocked", confidence=0.99, blocked_reason="Write operations require a controlled workflow.")
             await self._audit("query_plan_created", message, user, conversation_id, plan)
@@ -82,6 +88,13 @@ class QueryPlannerService:
         fallback = self._fallback_plan(message, current_date)
         plan = self._merge(llm_plan, fallback, message)
         plan = validate_query_plan(plan)
+        aggregation = build_rule_based_aggregation_plan(message, plan)
+        if aggregation:
+            plan.aggregation = aggregation
+            plan.expects_aggregation = True
+            plan.expects_chart = aggregation.chart_type != "table"
+            plan.fields = aggregation.fields
+            plan.normalized_filters = aggregation.normalized_filters
         await self._audit("query_filter_normalized", message, user, conversation_id, plan)
         await self._audit("query_plan_created", message, user, conversation_id, plan)
         return plan
@@ -93,6 +106,12 @@ class QueryPlannerService:
             return QueryPlan(intent="run_report", operation="read", report_name=report_name, filters={}, confidence=0.9, extraction_method="rules")
 
         doctype = resolve_doctype(message)
+        if not doctype and detect_aggregation_intent(message):
+            text = " ".join(message.lower().split())
+            if "sales" in text:
+                doctype = "Sales Invoice"
+            elif "purchase" in text:
+                doctype = "Purchase Invoice"
         if not doctype:
             return QueryPlan(
                 intent="unsupported",

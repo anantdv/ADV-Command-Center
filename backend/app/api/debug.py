@@ -14,6 +14,7 @@ from typing import Any
 from app.utils.date_range_parser import parse_date_range_phrase
 from app.utils.filter_normalizer import normalize_filters, to_frappe_filters
 from app.services.query_planner_service import QueryPlannerService
+from app.utils.chart_plan_builder import build_chart_from_aggregation
 
 router=APIRouter(prefix="/debug",tags=["Development"])
 
@@ -90,4 +91,18 @@ async def query_plan_debug(payload: QueryPlanDebugRequest, _: CurrentUserDep) ->
         "query_plan": plan.model_dump(mode="json"),
         "extraction_method": plan.extraction_method,
         "privacy_checked": plan.extraction_method != "rules",
+    })
+
+
+@router.post("/aggregation-plan", response_model=ApiResponse[dict])
+async def aggregation_plan_debug(payload: QueryPlanDebugRequest, _: CurrentUserDep) -> ApiResponse[dict]:
+    if settings.app_env != "development": raise AppError("Not found.",404)
+    plan = await QueryPlannerService().plan(payload.message, payload.module_context)
+    aggregation = plan.aggregation
+    return ApiResponse(data={
+        "query_plan": plan.model_dump(mode="json"),
+        "aggregation_plan": aggregation.model_dump(mode="json") if aggregation else None,
+        "normalized_filters": aggregation.normalized_filters if aggregation else plan.normalized_filters,
+        "required_fields": aggregation.fields if aggregation else plan.fields,
+        "chart_plan": build_chart_from_aggregation([], aggregation) if aggregation else None,
     })

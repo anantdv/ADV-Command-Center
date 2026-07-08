@@ -146,6 +146,42 @@ curl -X POST http://localhost:8000/api/chat/message \
   -d '{"message":"show purchase orders valued between 40000 to 50000"}'
 ```
 
+## Natural language aggregation and charts
+
+Aggregation requests are planned safely, fetch permission-approved source rows through the Frappe companion app, then group and aggregate in backend Python. The backend never sends ERPNext rows or aggregated rows to Gemini. Source fetches are capped by `AGGREGATION_MAX_SOURCE_ROWS`.
+
+```env
+AGGREGATION_MAX_SOURCE_ROWS=5000
+```
+
+Debug an aggregation plan:
+
+```bash
+curl -X POST http://localhost:8000/api/debug/aggregation-plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show monthly sales trend for 2025"}'
+```
+
+Chat examples:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show monthly sales trend for 2025"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show top 10 customers by outstanding"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show purchase orders by supplier as bar chart"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show sales orders by status as pie chart"}'
+```
+
 ## Controlled draft CRUD
 
 Supported creates are Customer, Supplier, Item, Quotation, Lead, Opportunity, and Issue. Safe updates are supported for those DocTypes using field allowlists; Quotation updates are restricted to Draft records. Direct `/api/erpnext/create-record` and `/api/erpnext/update-record` calls are intentionally disabled—the confirmation workflow is the only FastAPI write path.

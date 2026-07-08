@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     ocr_max_pages: int = 10
     ocr_language: str = "eng"
     document_intake_storage_root: str = "./document_intake_files"
+    aggregation_max_source_rows: int = 5000
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

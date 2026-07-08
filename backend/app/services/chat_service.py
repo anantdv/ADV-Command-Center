@@ -1,4 +1,5 @@
 from app.agents.erp_data_agent import ERPDataAgent
+from app.agents.aggregation_agent import AggregationAgent
 from app.agents.file_generation_agent import FileGenerationAgent
 from app.agents.crud_agent import CrudAgent
 from app.agents.report_agent import ReportAgent
@@ -47,6 +48,7 @@ class ChatService:
         file_agent: FileGenerationAgent | None = None,
         dashboards: DashboardService | None = None,
         crud_agent: CrudAgent | None = None,
+        aggregation_agent: AggregationAgent | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -56,6 +58,7 @@ class ChatService:
         self.file_agent = file_agent or FileGenerationAgent()
         self.dashboards = dashboards or dashboard_service
         self.crud_agent = crud_agent or CrudAgent()
+        self.aggregation_agent = aggregation_agent or AggregationAgent()
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -102,6 +105,8 @@ class ChatService:
             response = await self.crud_agent.handle(intent, cookies, user)
         elif intent.intent == "pin_to_dashboard":
             response = await self._pin_intent(intent, cookies, user)
+        elif intent.aggregation and intent.aggregation.enabled and intent.query_plan:
+            response = await self.aggregation_agent.handle(intent.query_plan, cookies, user, conversation.id)
         elif intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
             response = await self.erp_agent.handle(intent, cookies)
         else:

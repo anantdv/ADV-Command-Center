@@ -13,6 +13,7 @@ from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
 from app.core.audit import AuditEvent, log_audit_event
 from app.schemas.query_plan import QueryPlan
+from app.schemas.aggregation import AggregationPlan
 from app.services.query_planner_service import QueryPlannerService
 
 DOCTYPE_ALIASES = {
@@ -112,6 +113,8 @@ class IntentResult(BaseModel):
     privacy_allowed: bool = False
     erp_data_sent: bool = False
     fallback_used: bool = False
+    query_plan: QueryPlan | None = None
+    aggregation: AggregationPlan | None = None
 
 
 class RouterAgent:
@@ -289,6 +292,8 @@ class RouterAgent:
             privacy_allowed=plan.extraction_method != "rules",
             erp_data_sent=False,
             fallback_used=fallback_used or plan.extraction_method == "hybrid",
+            query_plan=plan,
+            aggregation=plan.aggregation,
         )
 
     async def handle(self, context: AgentContext) -> AgentResult:

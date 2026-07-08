@@ -48,6 +48,11 @@ def parse_date_range_phrase(text: str, current_date: date | None = None) -> dict
     if "last year" in normalized:
         return {"from_date": date(today.year - 1, 1, 1).isoformat(), "to_date": date(today.year - 1, 12, 31).isoformat()}
 
+    year_match = re.search(r"\b(?:for|in|during)\s+(\d{4})\b", normalized)
+    if year_match:
+        year = int(year_match.group(1))
+        return {"from_date": date(year, 1, 1).isoformat(), "to_date": date(year, 12, 31).isoformat()}
+
     range_match = re.search(r"(?:from\s+)?(" + "|".join(MONTHS) + r")\s+(\d{4})\s+(?:to|-|through)\s+(" + "|".join(MONTHS) + r")\s+(\d{4})", normalized)
     if range_match:
         start = _month_range(int(range_match.group(2)), MONTHS[range_match.group(1)])
