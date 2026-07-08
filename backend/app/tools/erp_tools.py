@@ -4,23 +4,8 @@ from app.config import settings
 from app.frappe.client import FrappeClient
 from app.schemas.chat import PermissionMeta, SourceMeta
 from app.services.erpnext_service import ERPNextService
+from app.utils.field_alias_mapper import DEFAULT_FIELDS
 from app.utils.filter_normalizer import normalize_filters
-
-DEFAULT_FIELDS = {
-    "Customer": ["name", "customer_name", "customer_group", "territory", "disabled"],
-    "Supplier": ["name", "supplier_name", "supplier_group", "disabled"],
-    "Item": ["name", "item_name", "item_group", "stock_uom", "disabled"],
-    "Sales Invoice": ["name", "customer", "posting_date", "grand_total", "outstanding_amount", "status"],
-    "Purchase Invoice": ["name", "supplier", "posting_date", "grand_total", "outstanding_amount", "status"],
-    "Sales Order": ["name", "customer", "transaction_date", "grand_total", "status"],
-    "Purchase Order": ["name", "supplier", "transaction_date", "grand_total", "status"],
-    "Quotation": ["name", "quotation_to", "party_name", "transaction_date", "grand_total", "status"],
-    "Lead": ["name", "lead_name", "company_name", "status"],
-    "Opportunity": ["name", "opportunity_from", "party_name", "status", "opportunity_amount"],
-    "Project": ["name", "project_name", "status", "percent_complete"],
-    "Task": ["name", "subject", "status", "exp_start_date", "exp_end_date"],
-    "Employee": ["name", "employee_name", "department", "designation", "status"],
-}
 
 
 class ERPReadTools:

@@ -13,6 +13,7 @@ from datetime import date
 from typing import Any
 from app.utils.date_range_parser import parse_date_range_phrase
 from app.utils.filter_normalizer import normalize_filters, to_frappe_filters
+from app.services.query_planner_service import QueryPlannerService
 
 router=APIRouter(prefix="/debug",tags=["Development"])
 
@@ -27,6 +28,11 @@ class NormalizeFiltersRequest(BaseModel):
     message: str | None = None
     filters: dict[str, Any] = Field(default_factory=dict)
     date_range: dict[str, Any] | None = None
+
+
+class QueryPlanDebugRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    module_context: str | None = None
 
 
 @router.post("/extract-intent", response_model=ApiResponse[dict])
@@ -72,4 +78,16 @@ async def normalize_debug(payload: NormalizeFiltersRequest, _: CurrentUserDep) -
         "date_range": date_range,
         "normalized_filters": normalized,
         "frappe_filters": to_frappe_filters(payload.doctype, normalized),
+    })
+
+
+@router.post("/query-plan", response_model=ApiResponse[dict])
+async def query_plan_debug(payload: QueryPlanDebugRequest, _: CurrentUserDep) -> ApiResponse[dict]:
+    if settings.app_env != "development": raise AppError("Not found.",404)
+    plan = await QueryPlannerService().plan(payload.message, payload.module_context)
+    return ApiResponse(data={
+        "raw_message": payload.message,
+        "query_plan": plan.model_dump(mode="json"),
+        "extraction_method": plan.extraction_method,
+        "privacy_checked": plan.extraction_method != "rules",
     })

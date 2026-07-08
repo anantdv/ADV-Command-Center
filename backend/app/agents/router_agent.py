@@ -12,6 +12,8 @@ from app.config import settings
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
 from app.core.audit import AuditEvent, log_audit_event
+from app.schemas.query_plan import QueryPlan
+from app.services.query_planner_service import QueryPlannerService
 
 DOCTYPE_ALIASES = {
     "support ticket": "Issue",
@@ -113,18 +115,32 @@ class IntentResult(BaseModel):
 
 
 class RouterAgent:
-    def __init__(self, extraction: LLMExtractionService | None = None):
+    def __init__(self, extraction: LLMExtractionService | None = None, query_planner: QueryPlannerService | None = None):
         self.extraction = extraction or LLMExtractionService()
+        self.query_planner = query_planner or QueryPlannerService(self.extraction)
 
     async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None) -> IntentResult:
+        text = " ".join(message.lower().split())
+        if self._blocked_write_requested(text):
+            return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
+        file_format = self._file_format(text)
+        file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
+        controlled_crud_requested = bool(re.search(r"\b(create|add|update|change)\b", text))
+        if (file_requested or controlled_crud_requested) and not settings.enable_llm_extraction:
+            return await self._classify_rules(message)
         extracted = await self.extraction.extract_intent(message, module_context, user=user, conversation_id=conversation_id)
         if extracted and extracted.intent == "blocked_write":
             await self._audit_routing("llm_blocked_write_detected", extracted, user, conversation_id)
             return self._from_extracted(extracted, message)
-        if extracted and extracted.intent != "unsupported" and extracted.confidence >= settings.llm_confidence_threshold:
+        if extracted and extracted.intent in {"generate_file", "pin_to_dashboard", "crud_create", "crud_update"} and extracted.confidence >= settings.llm_confidence_threshold:
             return self._from_extracted(extracted, message)
         if extracted:
             await self._audit_routing("llm_extraction_fallback_to_rules", extracted, user, conversation_id, fallback=True)
+        if file_requested or controlled_crud_requested:
+            return await self._classify_rules(message)
+        plan = await self.query_planner.plan(message, module_context, user=user, conversation_id=conversation_id, extracted_intent=extracted)
+        if plan.intent != "unsupported":
+            return self._from_query_plan(plan, message, bool(extracted))
         result = await self._classify_rules(message)
         result.extraction_method = "rules"
         result.fallback_used = bool(extracted)
@@ -243,6 +259,37 @@ class RouterAgent:
         source_type = "report" if extracted.report_name else ("doctype" if extracted.doctype else "chat_result")
         source_name = extracted.report_name or extracted.doctype or "Previous chat result"
         return IntentResult(intent=extracted.intent,operation=extracted.operation if extracted.operation in {"create","update"} else None,doctype=extracted.doctype,report_name=extracted.report_name,record_name=extracted.record_name,data=extracted.data,filters=filters,fields=extracted.fields or None,limit=extracted.limit,confidence=extracted.confidence,write_requested=extracted.intent=="blocked_write",raw_prompt=message,file_format=extracted.file_format,source_type=source_type if extracted.intent=="generate_file" else None,source_name=source_name if extracted.intent=="generate_file" else None,date_range=extracted.date_range,widget_type=extracted.widget_type,extraction_method="vertex_gemini",llm_provider=extracted.provider or "vertex_gemini",llm_model=extracted.model,llm_confidence=extracted.confidence,privacy_checked=extracted.privacy_checked,privacy_allowed=extracted.privacy_allowed,erp_data_sent=False,fallback_used=extracted.fallback_used)
+
+    @staticmethod
+    def _from_query_plan(plan: QueryPlan, message: str, fallback_used: bool = False) -> IntentResult:
+        source_type = "report" if plan.report_name else ("doctype" if plan.doctype else "chat_result")
+        source_name = plan.report_name or plan.doctype or "Previous chat result"
+        operation = plan.operation if plan.operation in {"create", "update"} else None
+        return IntentResult(
+            intent=plan.intent if plan.intent != "blocked_write" else "blocked_write",
+            operation=operation,
+            doctype=plan.doctype,
+            report_name=plan.report_name,
+            record_name=plan.record_name,
+            data=plan.data or None,
+            filters=plan.normalized_filters or plan.filters or {},
+            fields=plan.fields or None,
+            limit=plan.limit,
+            confidence=plan.confidence,
+            write_requested=plan.intent == "blocked_write",
+            raw_prompt=message,
+            file_format=plan.file_format,
+            source_type=source_type if plan.intent == "generate_file" else None,
+            source_name=source_name if plan.intent == "generate_file" else None,
+            date_range=None if plan.normalized_filters else plan.date_range,
+            widget_type=plan.widget_type,
+            extraction_method="rules" if plan.extraction_method == "rules" else "vertex_gemini",
+            llm_confidence=plan.confidence if plan.extraction_method != "rules" else None,
+            privacy_checked=plan.extraction_method != "rules",
+            privacy_allowed=plan.extraction_method != "rules",
+            erp_data_sent=False,
+            fallback_used=fallback_used or plan.extraction_method == "hybrid",
+        )
 
     async def handle(self, context: AgentContext) -> AgentResult:
         intent = await self.classify(context.message)

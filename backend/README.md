@@ -114,6 +114,38 @@ Supported areas include customers, suppliers, items, sales and purchase invoices
 
 Every tool call uses the companion app, carries Frappe permission metadata, and writes an audit summary without storing returned financial rows. Attempts to run SQL, bypass permissions, retrieve credentials, or perform non-allowlisted writes return structured safety responses without executing the operation.
 
+## Natural language query planner
+
+The chat router now builds a validated `QueryPlan` before calling ERPNext. Gemini may help extract intent, but deterministic server-side parsing resolves DocTypes, field aliases, date ranges, entity names, and amount filters before anything is executed. ERPNext rows are never sent to Gemini.
+
+Development-only planner inspection:
+
+```bash
+curl -X POST http://localhost:8000/api/debug/query-plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show me the customer name Nuar Urpa"}'
+
+curl -X POST http://localhost:8000/api/debug/query-plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show me invoices for the month of may 2025"}'
+```
+
+Chat examples:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show me the customer name Nuar Urpa"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show unpaid invoices for may 2025"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show purchase orders valued between 40000 to 50000"}'
+```
+
 ## Controlled draft CRUD
 
 Supported creates are Customer, Supplier, Item, Quotation, Lead, Opportunity, and Issue. Safe updates are supported for those DocTypes using field allowlists; Quotation updates are restricted to Draft records. Direct `/api/erpnext/create-record` and `/api/erpnext/update-record` calls are intentionally disabled—the confirmation workflow is the only FastAPI write path.

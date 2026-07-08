@@ -48,13 +48,15 @@ def normalize_filters(doctype: str, raw_filters: dict[str, Any] | list[Any] | No
     return output
 
 
-def to_frappe_filters(doctype: str, filters: dict[str, Any]) -> list[list[Any]]:
+def to_frappe_filters(doctype: str, filters: dict[str, Any], style: str = "list") -> dict[str, Any] | list[list[Any]]:
     """Convert normalized filters to Frappe's explicit list-of-lists format.
 
     This avoids companion-app ambiguity where JSON list values may be
     interpreted as equality-list values instead of operator expressions.
     """
     normalized = normalize_filters(doctype, filters)
+    if style == "dict":
+        return normalized
     output: list[list[Any]] = []
     for field, value in normalized.items():
         if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str) and value[0].lower() in ALLOWED_FILTER_OPERATORS:
