@@ -1,7 +1,7 @@
 import pytest
 
 from app.utils.date_range_parser import parse_date_range_phrase
-from app.utils.filter_normalizer import FilterNormalizationError, normalize_filters
+from app.utils.filter_normalizer import FilterNormalizationError, normalize_filters, to_frappe_filters
 
 
 def test_may_2025_date_range():
@@ -46,3 +46,10 @@ def test_date_from_to_object():
 def test_invalid_operator_raises():
     with pytest.raises(FilterNormalizationError):
         normalize_filters("Sales Invoice", {"grand_total": ["drop table", 1000]})
+
+
+def test_to_frappe_filters_list_of_lists():
+    assert to_frappe_filters("Sales Invoice", {"status": ["in", ["Unpaid", "Overdue"]], "posting_date": ["between", ["2025-05-01", "2025-05-31"]]}) == [
+        ["Sales Invoice", "status", "in", ["Unpaid", "Overdue"]],
+        ["Sales Invoice", "posting_date", "between", ["2025-05-01", "2025-05-31"]],
+    ]

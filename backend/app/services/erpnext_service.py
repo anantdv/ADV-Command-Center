@@ -17,7 +17,7 @@ from app.schemas.erpnext import (
     ListRecordsResponse,
     RecordResponse,
 )
-from app.utils.filter_normalizer import FilterNormalizationError, normalize_filters
+from app.utils.filter_normalizer import FilterNormalizationError, normalize_filters, to_frappe_filters
 
 
 class ERPNextService:
@@ -136,7 +136,7 @@ class ERPNextService:
             )
         payload: dict[str, Any] = {
             "doctype": doctype,
-            "filters": filters or {},
+            "filters": to_frappe_filters(doctype, filters or {}),
             "fields": fields or ["name"],
             "limit": min(max(limit, 1), 500),
         }
