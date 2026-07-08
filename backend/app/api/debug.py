@@ -15,6 +15,9 @@ from app.utils.date_range_parser import parse_date_range_phrase
 from app.utils.filter_normalizer import normalize_filters, to_frappe_filters
 from app.services.query_planner_service import QueryPlannerService
 from app.utils.chart_plan_builder import build_chart_from_aggregation
+from app.schemas.report_composer import ReportComposerPlanRequest
+from app.services.report_composer_service import report_composer_service
+from app.utils.report_filter_builder import build_normalized_filters_from_plan
 
 router=APIRouter(prefix="/debug",tags=["Development"])
 
@@ -105,4 +108,17 @@ async def aggregation_plan_debug(payload: QueryPlanDebugRequest, _: CurrentUserD
         "normalized_filters": aggregation.normalized_filters if aggregation else plan.normalized_filters,
         "required_fields": aggregation.fields if aggregation else plan.fields,
         "chart_plan": build_chart_from_aggregation([], aggregation) if aggregation else None,
+    })
+
+
+@router.post("/report-composer-plan", response_model=ApiResponse[dict])
+async def report_composer_plan_debug(payload: ReportComposerPlanRequest, _: CurrentUserDep) -> ApiResponse[dict]:
+    if settings.app_env != "development": raise AppError("Not found.",404)
+    plan = await report_composer_service.plan_report(payload)
+    return ApiResponse(data={
+        "plan": plan.model_dump(mode="json"),
+        "validated_plan": plan.model_dump(mode="json"),
+        "normalized_filters": build_normalized_filters_from_plan(plan),
+        "required_source_fields": report_composer_service._required_source_fields(plan),
+        "warnings": plan.warnings,
     })

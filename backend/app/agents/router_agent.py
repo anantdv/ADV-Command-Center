@@ -15,7 +15,9 @@ from app.llm.schemas import ExtractedIntent
 from app.core.audit import AuditEvent, log_audit_event
 from app.schemas.query_plan import QueryPlan
 from app.schemas.aggregation import AggregationPlan
+from app.schemas.report_composer import ReportComposerPlan
 from app.services.query_planner_service import QueryPlannerService
+from app.utils.report_composer_planner import ReportComposerPlanner
 
 DOCTYPE_ALIASES = {
     "support ticket": "Issue",
@@ -83,7 +85,7 @@ RECORD_ID_PATTERN = re.compile(
 class IntentResult(BaseModel):
     intent: Literal[
         "list_records", "get_record", "run_report", "summary_query", "chart_query",
-        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "blocked_write", "unsupported", "write_blocked",
+        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "report_composer", "blocked_write", "unsupported", "write_blocked",
     ]
     doctype: str | None = None
     report_name: str | None = None
@@ -116,6 +118,7 @@ class IntentResult(BaseModel):
     fallback_used: bool = False
     query_plan: QueryPlan | None = None
     aggregation: AggregationPlan | None = None
+    report_composer_plan: ReportComposerPlan | None = None
 
 
 class RouterAgent:
@@ -128,6 +131,9 @@ class RouterAgent:
         workflow = parse_workflow_intent(message)
         if workflow:
             return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data={"action": workflow.get("action")} if workflow.get("action") else None, confidence=0.96, raw_prompt=message)
+        if settings.enable_report_composer and ReportComposerPlanner.looks_like_report_prompt(message):
+            plan = await ReportComposerPlanner().plan_from_message(message, module_context)
+            return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan)
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
         file_format = self._file_format(text)

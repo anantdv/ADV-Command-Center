@@ -27,6 +27,9 @@ class WidgetDataBuilder:
         if hasattr(source, "model_dump"): source = source.model_dump()
         source_type = source["source_type"]
         source_name = source.get("doctype") or source.get("report_name") or source.get("source_name")
+        if source_type == "manual_config":
+            data = {"message": "This widget stores a safe report configuration. Refreshable report-composer widgets will re-run the saved plan in the next iteration."}
+            return DashboardWidgetData(widget_id=widget_id or raw.get("widget_id") or "preview", title=raw["title"], widget_type=raw["widget_type"], source=source, chart_config=raw.get("chart_config"), layout=raw.get("layout") or DashboardWidgetLayout(), data=data, permission={"allowed": True, "risk_level": "low"}, last_refreshed_at=utc_now().isoformat(), refresh_interval_seconds=raw.get("refresh_interval_seconds", 300), visibility=raw.get("visibility", "private"), allowed_roles=raw.get("allowed_roles") or [], conversation_id=raw.get("conversation_id"), message_id=raw.get("message_id"), label=raw["title"])
         if source_type not in {"doctype", "report"}:
             raise AppError("Only refreshable DocType and report sources can be pinned.", 422)
         fields = list(dict.fromkeys([*(source.get("fields") or []), source.get("group_by"), source.get("aggregate_field")]))

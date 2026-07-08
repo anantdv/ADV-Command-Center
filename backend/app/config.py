@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     analytics_max_source_rows: int = 5000
     analytics_default_limit: int = 20
     analytics_allow_raw_detail_export: bool = False
+    enable_report_composer: bool = True
+    report_composer_max_source_rows: int = 5000
+    report_composer_default_limit: int = 100
+    report_composer_max_groups: int = 100
+    report_composer_allow_detail_rows: bool = True
+    report_composer_allow_multi_source: bool = False
+    report_composer_save_views: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -231,6 +231,40 @@ curl -X POST http://localhost:8000/api/analytics/run \
   -d '{"analytics_key":"top_customers_by_outstanding","limit":10,"chart_type":"bar"}'
 ```
 
+## Natural language report composer
+
+The report composer turns explicit custom-report prompts into a validated allowlisted plan, then fetches ERPNext data through the companion app and aggregates locally. It never generates SQL, never stores raw result rows in saved views, and pinned widgets store report configuration only.
+
+```env
+ENABLE_REPORT_COMPOSER=true
+REPORT_COMPOSER_MAX_SOURCE_ROWS=5000
+REPORT_COMPOSER_DEFAULT_LIMIT=100
+REPORT_COMPOSER_MAX_GROUPS=100
+REPORT_COMPOSER_ALLOW_DETAIL_ROWS=true
+REPORT_COMPOSER_ALLOW_MULTI_SOURCE=false
+REPORT_COMPOSER_SAVE_VIEWS=true
+```
+
+```bash
+curl -X POST http://localhost:8000/api/report-composer/plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"create a report showing sales invoices by customer for May 2025 with invoice count, total amount, and outstanding amount"}'
+
+curl -X POST http://localhost:8000/api/report-composer/run \
+  -H "Content-Type: application/json" \
+  -d '{"plan":{"title":"Customer Sales Summary - May 2025","source":{"source_type":"doctype","source_name":"Sales Invoice"},"output_mode":"table_chart","group_by":["customer"],"metrics":[{"fieldname":"name","function":"count","label":"Invoice Count"},{"fieldname":"grand_total","function":"sum","label":"Total Amount"},{"fieldname":"outstanding_amount","function":"sum","label":"Outstanding Amount"}],"date_range":{"from_date":"2025-05-01","to_date":"2025-05-31"},"chart":{"chart_type":"bar"},"limit":100}}'
+
+curl -X POST http://localhost:8000/api/report-composer/views \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Customer Sales Summary","plan":{"source":{"source_type":"doctype","source_name":"Sales Invoice"},"output_mode":"table_chart","group_by":["customer"],"metrics":[{"fieldname":"grand_total","function":"sum","label":"Total Amount"}],"chart":{"chart_type":"bar"}}}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"create a report for unpaid invoices grouped by customer with total outstanding"}'
+```
+
+Multi-source prompts such as “make a monthly sales and purchase comparison for 2025” return a clear limitation while `REPORT_COMPOSER_ALLOW_MULTI_SOURCE=false`.
+
 ## Controlled draft CRUD
 
 Supported creates are Customer, Supplier, Item, Quotation, Lead, Opportunity, and Issue. Safe updates are supported for those DocTypes using field allowlists; Quotation updates are restricted to Draft records. Direct `/api/erpnext/create-record` and `/api/erpnext/update-record` calls are intentionally disabled—the confirmation workflow is the only FastAPI write path.

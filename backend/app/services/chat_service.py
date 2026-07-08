@@ -4,6 +4,7 @@ from app.agents.workflow_agent import WorkflowAgent
 from app.agents.file_generation_agent import FileGenerationAgent
 from app.agents.crud_agent import CrudAgent
 from app.agents.report_agent import ReportAgent
+from app.agents.report_composer_agent import ReportComposerAgent
 from app.agents.router_agent import IntentResult, RouterAgent
 from app.agents.safety_agent import SafetyAgent, SafetyResult
 from app.core.audit import AuditEvent, log_audit_event
@@ -51,6 +52,7 @@ class ChatService:
         crud_agent: CrudAgent | None = None,
         aggregation_agent: AggregationAgent | None = None,
         workflow_agent: WorkflowAgent | None = None,
+        report_composer_agent: ReportComposerAgent | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -62,6 +64,7 @@ class ChatService:
         self.crud_agent = crud_agent or CrudAgent()
         self.aggregation_agent = aggregation_agent or AggregationAgent()
         self.workflow_agent = workflow_agent or WorkflowAgent()
+        self.report_composer_agent = report_composer_agent or ReportComposerAgent()
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -108,6 +111,8 @@ class ChatService:
             response = await self.file_agent.handle(intent, cookies, user)
         elif intent.intent in {"crud_create", "crud_update"}:
             response = await self.crud_agent.handle(intent, cookies, user)
+        elif intent.intent == "report_composer":
+            response = await self.report_composer_agent.handle(intent, cookies, user)
         elif intent.intent == "pin_to_dashboard":
             response = await self._pin_intent(intent, cookies, user)
         elif intent.aggregation and intent.aggregation.enabled and intent.query_plan:
@@ -223,12 +228,13 @@ class ChatService:
         elif intent.intent == "blocked_write": audit_action = "crud_blocked_action"
         elif intent.intent == "crud_create": audit_action = "crud_prepare_create"
         elif intent.intent == "crud_update": audit_action = "crud_prepare_update"
+        elif intent.intent == "report_composer": audit_action = "report_composer_run_completed"
         else: audit_action = "read_only_chat_tool" if tool_part else "chat_safety_response"
         await log_audit_event(AuditEvent(
             user=user or "unknown",
             conversation_id=response.conversation_id,
             action=audit_action,
-            agent_name="workflow_agent" if intent.intent.startswith("workflow_") else ("crud_agent" if intent.intent in {"crud_create", "crud_update"} else ("file_generation_agent" if intent.intent == "generate_file" else ("report_agent" if intent.intent == "run_report" else "erp_data_agent"))),
+            agent_name="workflow_agent" if intent.intent.startswith("workflow_") else ("crud_agent" if intent.intent in {"crud_create", "crud_update"} else ("report_composer_agent" if intent.intent == "report_composer" else ("file_generation_agent" if intent.intent == "generate_file" else ("report_agent" if intent.intent == "run_report" else "erp_data_agent")))),
             tool_name=tool_part.tool_name if tool_part else None,
             doctype=intent.doctype,
             record_name=intent.record_name,
