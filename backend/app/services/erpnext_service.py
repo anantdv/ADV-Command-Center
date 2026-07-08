@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.config import settings
+from app.core.exceptions import AppError
 from app.db.seed import FULL_PERMISSION, INVOICES, MOCK_USER
 from app.frappe import auth as frappe_auth
 from app.frappe import crud as frappe_crud
@@ -16,6 +17,7 @@ from app.schemas.erpnext import (
     ListRecordsResponse,
     RecordResponse,
 )
+from app.utils.filter_normalizer import FilterNormalizationError, normalize_filters
 
 
 class ERPNextService:
@@ -119,7 +121,12 @@ class ERPNextService:
         limit: int = 20,
         order_by: str | None = None,
         cookies: dict | None = None,
+        date_range: dict[str, Any] | None = None,
     ) -> ListRecordsResponse:
+        try:
+            filters = normalize_filters(doctype, filters or {}, date_range)
+        except FilterNormalizationError as exc:
+            raise AppError("I could not apply that filter safely. Please check the filter condition.", 422, {"doctype": doctype, "error": str(exc)}) from exc
         if settings.use_mock_data:
             records = self._mock_records(doctype, filters or {})
             return ListRecordsResponse(

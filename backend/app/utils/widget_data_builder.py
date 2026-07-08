@@ -10,6 +10,7 @@ from app.services.report_service import ReportService
 from app.utils.datetime import utc_now
 from app.utils.table_formatter import build_table_part
 from app.utils.chart_builder import infer_widget_chart_config, normalize_chart_widget_data
+from app.utils.filter_normalizer import normalize_filters
 
 
 class WidgetDataBuilder:
@@ -31,7 +32,7 @@ class WidgetDataBuilder:
         fields = list(dict.fromkeys([*(source.get("fields") or []), source.get("group_by"), source.get("aggregate_field")]))
         fields = [field for field in fields if field]
         if source_type == "doctype":
-            result = await self.erp.list_records(source_name, source.get("filters") or {}, fields or ["name"], 500, cookies=cookies)
+            result = await self.erp.list_records(source_name, normalize_filters(source_name, source.get("filters") or {}), fields or ["name"], 500, cookies=cookies)
             permission = result.permissions.model_dump()
             if not permission.get("allowed", True): raise PermissionDenied(permission.get("reason") or "Dashboard source permission denied.")
             rows = result.records

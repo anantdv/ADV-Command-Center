@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.agents.runtime import AgentContext, AgentResult
 from app.utils.field_mapper import ALLOWED_CREATE_FIELDS, ALLOWED_UPDATE_FIELDS
 from app.utils.payload_builder import PayloadBuilder
+from app.utils.date_range_parser import parse_date_range_phrase
 from app.config import settings
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
@@ -202,6 +203,8 @@ class RouterAgent:
             return IntentResult(intent="unsupported", confidence=0.2, raw_prompt=message)
 
         filters = self._filters(text, doctype)
+        date_range = parse_date_range_phrase(text)
+        filters = {**filters, **self._value_filters(text)}
         record_name = self._record_name(text, doctype)
         if record_name:
             return IntentResult(
@@ -209,6 +212,7 @@ class RouterAgent:
                 doctype=doctype,
                 record_name=record_name,
                 filters=filters,
+                date_range=date_range,
                 confidence=0.94,
                 raw_prompt=message,
             )
@@ -218,6 +222,7 @@ class RouterAgent:
             intent=intent,
             doctype=doctype,
             filters=filters,
+            date_range=date_range,
             confidence=0.9,
             raw_prompt=message,
         )
@@ -280,7 +285,7 @@ class RouterAgent:
             if "overdue" in text:
                 return {"status": "Overdue"}
             if "unpaid" in text:
-                return {"outstanding_amount": [">", 0]}
+                return {"status": "unpaid"}
             if "paid" in text:
                 return {"outstanding_amount": ["=", 0]}
             if "draft" in text:
@@ -299,6 +304,19 @@ class RouterAgent:
         return {}
 
     @staticmethod
+    def _value_filters(text: str) -> dict[str, Any]:
+        between = re.search(r"\b(?:valued|value|amount|total)?\s*(?:between|from)\s+([\d,]+(?:\.\d+)?)\s+(?:to|and|-)\s+([\d,]+(?:\.\d+)?)\b", text)
+        if between:
+            return {"value": ["between", [_num(between.group(1)), _num(between.group(2))]]}
+        above = re.search(r"\b(?:above|over|greater than|more than)\s+([\d,]+(?:\.\d+)?)\b", text)
+        if above:
+            return {"value": [">", _num(above.group(1))]}
+        below = re.search(r"\b(?:below|under|less than)\s+([\d,]+(?:\.\d+)?)\b", text)
+        if below:
+            return {"value": ["<", _num(below.group(1))]}
+        return {}
+
+    @staticmethod
     def _record_name(text: str, doctype: str) -> str | None:
         known = RECORD_ID_PATTERN.search(text)
         if known:
@@ -314,3 +332,7 @@ class RouterAgent:
             if match and match.group(1).lower() not in {"list", "records", "details"}:
                 return match.group(1).upper()
         return None
+
+
+def _num(value: str) -> float:
+    return float(value.replace(",", ""))

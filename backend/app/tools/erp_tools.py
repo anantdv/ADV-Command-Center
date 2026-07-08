@@ -4,6 +4,7 @@ from app.config import settings
 from app.frappe.client import FrappeClient
 from app.schemas.chat import PermissionMeta, SourceMeta
 from app.services.erpnext_service import ERPNextService
+from app.utils.filter_normalizer import normalize_filters
 
 DEFAULT_FIELDS = {
     "Customer": ["name", "customer_name", "customer_group", "territory", "disabled"],
@@ -42,15 +43,18 @@ class ERPReadTools:
         limit: int = 20,
         order_by: str | None = None,
         cookies: dict | None = None,
+        date_range: dict | None = None,
     ) -> dict[str, Any]:
         requested_fields = fields or DEFAULT_FIELDS.get(doctype, ["name"])
+        normalized_filters = normalize_filters(doctype, filters or {}, date_range)
         result = await self.service.list_records(
             doctype=doctype,
-            filters=filters or {},
+            filters=normalized_filters,
             fields=requested_fields,
             limit=min(limit, 20),
             order_by=order_by,
             cookies=cookies,
+            date_range=None,
         )
         columns = list(result.records[0].keys()) if result.records else requested_fields
         return {
@@ -61,7 +65,7 @@ class ERPReadTools:
                 source_type="doctype",
                 source_name=doctype,
                 record_count=result.total,
-                filters=filters or {},
+                filters=normalized_filters,
                 doctype=doctype,
                 fields=requested_fields,
             ).model_dump(),

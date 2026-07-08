@@ -22,6 +22,7 @@ from app.utils.excel_writer import write_excel
 from app.utils.file_storage import FileStorage
 from app.utils.pdf_writer import write_pdf_reportlab, write_pdf_weasyprint
 from app.utils.report_renderer import render_html_report
+from app.utils.filter_normalizer import normalize_filters
 
 logger = structlog.get_logger(__name__)
 SENSITIVE_FIELD_PARTS = ("password", "secret", "token", "api_key", "api_secret", "otp", "bank_account", "account_no", "salary", "pan", "aadhaar")
@@ -112,7 +113,7 @@ class FileGenerationService:
             return request.rows, {"allowed": True, "risk_level": "medium", "confirmation_required": False}
         if request.source_type == "doctype":
             # TODO: Add a companion cursor/count API; its current safe list endpoint caps one request at 500 rows.
-            result = await self.erpnext.list_records(request.source_name, request.filters or {}, request.fields, min(request.limit or settings.max_export_rows, settings.max_export_rows), cookies=cookies)
+            result = await self.erpnext.list_records(request.source_name, normalize_filters(request.source_name, request.filters or {}), request.fields, min(request.limit or settings.max_export_rows, settings.max_export_rows), cookies=cookies)
             return result.records, result.permissions.model_dump()
         if request.source_type == "report":
             result = await self.reports.run_report(request.source_name, request.filters or {}, cookies)

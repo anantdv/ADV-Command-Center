@@ -22,6 +22,13 @@ Allowed file formats: {', '.join(ALLOWED_FILE_FORMATS)}.
 Allowed widget types: {', '.join(ALLOWED_WIDGET_TYPES)}.
 Blocked operations: {', '.join(BLOCKED_OPERATIONS)}.
 Blocked requests must use intent blocked_write. Export requests use generate_file. Dashboard pin requests use pin_to_dashboard. Do not invent records or results.
+For date phrases like "May 2025", return date_range: {{"from_date":"2025-05-01","to_date":"2025-05-31"}}.
+For "January 2025 to March 2025", return date_range: {{"from_date":"2025-01-01","to_date":"2025-03-31"}}.
+For phrases like "between 40000 to 50000", return filters {{"grand_total":["between",[40000,50000]]}}.
+For "above 50000", return filters {{"grand_total":[">",50000]}}. For "below 50000", return filters {{"grand_total":["<",50000]}}.
+For "unpaid invoices", use doctype "Sales Invoice" unless user says purchase invoice, and filters {{"status":["in",["Unpaid","Overdue"]]}}.
+For "unpaid purchase invoices", use doctype "Purchase Invoice" and filters {{"status":["in",["Unpaid","Overdue"]]}}.
+For "purchase orders valued between 40000 to 50000", use doctype "Purchase Order" and filters {{"grand_total":["between",[40000,50000]]}}.
 Use this exact shape and always include every key:
 {json.dumps({'intent':'unsupported','operation':'none','doctype':None,'report_name':None,'record_name':None,'data':{},'filters':{},'fields':[],'file_format':None,'widget_type':None,'date_range':None,'limit':20,'confidence':0.0,'missing_information':[],'blocked_reason':None,'user_facing_summary':None})}"""
 

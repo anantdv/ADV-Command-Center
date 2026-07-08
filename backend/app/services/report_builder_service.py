@@ -9,6 +9,7 @@ from app.schemas.report_builder import ReportColumn, ReportDiagnosticResponse, R
 from app.services.erpnext_service import ERPNextService
 from app.services.report_service import ReportService, default_report_filters
 from app.utils.column_resolver import ColumnResolver
+from app.utils.filter_normalizer import normalize_filters
 
 
 class ReportBuilderService:
@@ -26,7 +27,7 @@ class ReportBuilderService:
         all_columns = await self.columns.get_available_columns(request.source_type, request.source_name, cookies)
         column_map = {column.key: column for column in all_columns}
         if request.source_type == "doctype":
-            result = await self.erp.list_records(request.source_name, request.filters, selected, request.limit, request.order_by, cookies)
+            result = await self.erp.list_records(request.source_name, normalize_filters(request.source_name, request.filters), selected, request.limit, request.order_by, cookies)
             rows = [{key: row.get(key) for key in selected} for row in result.records]
             permission = result.permissions.model_dump()
         else:

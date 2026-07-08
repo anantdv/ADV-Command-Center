@@ -54,6 +54,7 @@ class ERPDataAgent:
                 intent.fields,
                 intent.limit,
                 cookies=cookies,
+                date_range=intent.date_range,
             )
             count = result["record_count"]
             qualifier = "overdue " if (intent.filters or {}).get("status") == "Overdue" else ""

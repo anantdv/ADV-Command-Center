@@ -468,6 +468,56 @@ curl -X POST http://localhost:8000/api/reports/diagnose \
   -d '{"report_name":"Stock Balance"}'
 ```
 
+## Natural-language filter normalization
+
+All DocType read paths normalize messy LLM/rule filters before calling Frappe.
+Supported shapes include equality, `["operator", value]`, `{"operator":"between","value":[min,max]}`,
+`{"between":[min,max]}`, `{"min":min,"max":max}`, and date objects such as
+`{"from":"2025-05-01","to":"2025-05-31"}`. Field aliases such as `value`,
+`amount`, and `total` map to `grand_total` for invoices, orders, and quotations.
+
+Debug unpaid invoices for May 2025:
+
+```bash
+curl -X POST http://localhost:8000/api/debug/normalize-filters \
+  -H "Content-Type: application/json" \
+  -d '{"doctype":"Sales Invoice","message":"show unpaid invoices for may 2025","filters":{"status":"unpaid"}}'
+```
+
+Run unpaid invoice prompt:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show unpaid invoices for may 2025"}'
+```
+
+Debug Purchase Order value range:
+
+```bash
+curl -X POST http://localhost:8000/api/debug/normalize-filters \
+  -H "Content-Type: application/json" \
+  -d '{"doctype":"Purchase Order","message":"show purchase orders valued between 40000 to 50000","filters":{"value":{"between":[40000,50000]}}}'
+```
+
+Run Purchase Order value range prompt:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show purchase orders valued between 40000 to 50000"}'
+```
+
+Other supported examples:
+
+```text
+show sales invoices above 50000
+show purchase invoices below 10000
+show sales orders from january 2025 to march 2025
+show quotations between 10000 and 20000
+show overdue invoices this month
+```
+
 ## Communication Center
 
 The `/api/communications` router proxies only to the installed companion app and preserves the current Frappe `sid`. It never reads the ERPNext database directly.
