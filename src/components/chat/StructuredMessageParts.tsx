@@ -1,5 +1,6 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { FileDown, FileSpreadsheet, Filter, LayoutDashboard, ListFilter, LockKeyhole, Pin, ShieldAlert, Sparkles } from 'lucide-react'
 import { ToolExecutionCard } from './ToolExecutionCard'
 import { GeneratedFileCard } from './GeneratedFileCard'
@@ -9,6 +10,7 @@ import { RecordPreviewCard } from './RecordPreviewCard'
 import type { ChartPart, ChatMessagePart, ChatPermissionMeta, SourceMeta, SuggestedAction, TablePart } from '../../types/chat'
 import { useAuthStore } from '../../store/useAuthStore'
 import { formatCurrency } from '../../utils/formatters'
+import { ColumnSelector } from '../reports/ColumnSelector'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -53,9 +55,14 @@ function SourceStrip({source,permission}:{source:SourceMeta;permission?:ChatPerm
 }
 
 function DynamicTable({part,currency}:{part:TablePart;currency:string}){
+  const [customize,setCustomize]=useState(false)
+  const [visible,setVisible]=useState<string[]>(part.columns.map(column=>column.key))
+  const available=useMemo(()=>part.columns.map(column=>({key:column.key,label:column.label,fieldtype:column.type||'Data',visible:true,source:'doctype' as const})),[part.columns])
+  const columns=part.columns.filter(column=>visible.includes(column.key))
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-    <div className="flex items-center justify-between border-b bg-slate-50/70 px-4 py-3"><div><p className="text-xs font-bold text-slate-800">{part.title}</p><p className="mt-0.5 text-[10px] text-slate-400">Showing {part.rows.length}{part.total_rows!==null&&part.total_rows!==undefined?` of ${part.total_rows}`:''} rows</p></div><ListFilter size={15} className="text-slate-400"/></div>
-    {part.rows.length===0?<div className="px-4 py-8 text-center text-xs text-slate-400">No records matched this query.</div>:<div className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[620px] text-left"><thead><tr className="border-b border-slate-100">{part.columns.map(column=><th key={column.key} className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{column.label}</th>)}</tr></thead><tbody>{part.rows.map((row,rowIndex)=><tr key={String(row.name||row.id||rowIndex)} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">{part.columns.map(column=><td key={column.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{formatCell(row[column.key],column.type,column.key,currency)}</td>)}</tr>)}</tbody></table></div>}
+    <div className="flex items-center justify-between border-b bg-slate-50/70 px-4 py-3"><div><p className="text-xs font-bold text-slate-800">{part.title}</p><p className="mt-0.5 text-[10px] text-slate-400">Showing {part.rows.length}{part.total_rows!==null&&part.total_rows!==undefined?` of ${part.total_rows}`:''} rows · {columns.length} columns</p></div><button onClick={()=>setCustomize(value=>!value)} className="btn-secondary h-8 px-2 text-xs"><ListFilter size={14}/>Columns</button></div>
+    {customize&&<div className="border-b p-3"><ColumnSelector columns={available} selected={visible} onApply={columns=>{setVisible(columns);setCustomize(false)}}/></div>}
+    {part.rows.length===0?<div className="px-4 py-8 text-center text-xs text-slate-400">No records matched this query.</div>:<div className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[620px] text-left"><thead><tr className="border-b border-slate-100">{columns.map(column=><th key={column.key} className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{column.label}</th>)}</tr></thead><tbody>{part.rows.map((row,rowIndex)=><tr key={String(row.name||row.id||rowIndex)} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">{columns.map(column=><td key={column.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{formatCell(row[column.key],column.type,column.key,currency)}</td>)}</tr>)}</tbody></table></div>}
   </div>
 }
 
