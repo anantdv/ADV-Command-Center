@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from app.config import settings
@@ -136,7 +137,7 @@ class ERPNextService:
             )
         payload: dict[str, Any] = {
             "doctype": doctype,
-            "filters": to_frappe_filters(doctype, filters or {}),
+            "filters": json.dumps(to_frappe_filters(doctype, filters or {})),
             "fields": fields or ["name"],
             "limit": min(max(limit, 1), 500),
         }

@@ -1,4 +1,5 @@
 from typing import Any
+import json
 
 import pytest
 
@@ -57,6 +58,21 @@ async def test_companion_list_response_is_adapted(real_service_mode):
     assert result.records[0]["customer_name"] == "ABC"
     assert result.permissions.allowed is True
     assert result.permissions.filtered_fields == ["name", "customer_name"]
+
+
+@pytest.mark.asyncio
+async def test_companion_filters_are_sent_as_json_list_filters(real_service_mode):
+    client = FakeFrappeClient({
+        "/api/method/ai_command_center.api.crud.list_records": {
+            "message": {"success": True, "data": {"records": [], "count": 0, "permission": {"allowed": True}}}
+        }
+    })
+    await ERPNextService(client).list_records(
+        "Quotation",
+        filters={"grand_total": ["between", [10000, 20000]]},
+        fields=["name", "grand_total"],
+    )
+    assert json.loads(client.last_json["filters"]) == [["Quotation", "grand_total", "between", [10000, 20000]]]
 
 
 @pytest.mark.asyncio
