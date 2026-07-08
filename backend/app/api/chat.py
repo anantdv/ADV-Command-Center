@@ -30,6 +30,7 @@ async def send_message(payload: ChatMessageRequest, request: Request, user: Curr
             payload,
             get_frappe_cookies(request),
             user.user,
+            user.roles,
         )
     )
 

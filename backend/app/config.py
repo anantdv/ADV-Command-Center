@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     report_composer_allow_detail_rows: bool = True
     report_composer_allow_multi_source: bool = False
     report_composer_save_views: bool = True
+    enable_dynamic_suggestions: bool = True
+    max_dynamic_suggestions: int = 6
+    enable_suggestion_execute_endpoint: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

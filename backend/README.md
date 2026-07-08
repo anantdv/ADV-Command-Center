@@ -265,6 +265,32 @@ curl -X POST http://localhost:8000/api/chat/message \
 
 Multi-source prompts such as “make a monthly sales and purchase comparison for 2025” return a clear limitation while `REPORT_COMPOSER_ALLOW_MULTI_SOURCE=false`.
 
+## Dynamic contextual suggestions
+
+Assistant responses can include compact suggested next-action buttons. The suggestion engine is rule-based, uses only response metadata, and never receives or stores raw ERPNext result rows.
+
+```env
+ENABLE_DYNAMIC_SUGGESTIONS=true
+MAX_DYNAMIC_SUGGESTIONS=6
+ENABLE_SUGGESTION_EXECUTE_ENDPOINT=true
+```
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show unpaid invoices for May 2025"}'
+
+curl -X POST http://localhost:8000/api/suggestions/generate \
+  -H "Content-Type: application/json" \
+  -d '{"result_type":"table","doctype":"Sales Invoice","source_name":"Sales Invoice","row_count":14,"message_id":"msg_123","filters":{"status":"Unpaid"}}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show my pending approvals"}'
+```
+
+Expected labels include contextual prompts like `Group by Customer`, `Show Aging`, `Export to Excel`, `Pin to Overview`, `Open First Document`, and draft confirmation actions where a valid confirmation ID exists. Suggestion execution is only a convenience wrapper; all actions still go through the existing chat, export, pin, workflow, or CRUD confirmation safety path.
+
 ## Controlled draft CRUD
 
 Supported creates are Customer, Supplier, Item, Quotation, Lead, Opportunity, and Issue. Safe updates are supported for those DocTypes using field allowlists; Quotation updates are restricted to Draft records. Direct `/api/erpnext/create-record` and `/api/erpnext/update-record` calls are intentionally disabled—the confirmation workflow is the only FastAPI write path.

@@ -8,11 +8,13 @@ import { ErrorState } from '../components/common/ErrorState'
 import { LoadingState } from '../components/common/LoadingState'
 import { TinniAvatar } from '../components/common/BrandLogo'
 import { PinToDashboardButton } from '../components/chat/PinToDashboardButton'
+import { SuggestedPromptButtons } from '../components/chat/SuggestedPromptButtons'
 import { DocumentMappingPreview } from '../components/document-intake/DocumentMappingPreview'
 import { DocumentUploadPanel } from '../components/document-intake/DocumentUploadPanel'
 import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
 import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
+import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
 
 const prompts = [
@@ -65,6 +67,39 @@ export function CommandCenterPage() {
       send(`generate ${format[action.action_type]} for ${overdue}${source?.source_name||'this result'}`)
     }
   }
+  const runSuggestion=(suggestion:SuggestedPrompt,source?:SourceMeta|null)=>{
+    if(suggestion.disabled)return
+    const actionType=suggestion.actionType||suggestion.action_type||suggestion.type
+    const payload=suggestion.payload||{}
+    if(suggestion.type==='prompt'&&suggestion.prompt){send(suggestion.prompt);return}
+    if(suggestion.type==='export'){
+      const format=String(payload.format||'xlsx')
+      send(`export this result to ${format}`)
+      return
+    }
+    if(suggestion.type==='pin'){
+      send(`pin ${source?.source_name||'this result'} to overview`)
+      return
+    }
+    if(suggestion.type==='navigation'){
+      if(actionType==='open_library'){navigate('/library');return}
+      const downloadUrl=payload.download_url||payload.downloadUrl
+      if(typeof downloadUrl==='string'){window.location.assign(downloadUrl);return}
+    }
+    if(suggestion.type==='workflow_action'){
+      const action=String(payload.action||suggestion.label)
+      const doctype=String(payload.doctype||source?.doctype||source?.source_name||'document')
+      const name=String(payload.name||payload.recordName||'')
+      send(`${action} ${doctype} ${name}`.trim())
+      return
+    }
+    if(suggestion.type==='crud_confirmation'){
+      // Confirmation cards remain the canonical UX. This prompt keeps the action in the safe chat path.
+      send(`${suggestion.label} for the current draft`)
+      return
+    }
+    if(suggestion.prompt)send(suggestion.prompt)
+  }
   const startNew=()=>{setNewChat(true);setSelectedId(undefined);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
   const selectConversation=(id:string)=>{setSelectedId(id);setNewChat(false);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
   const selected=conversations.data?.find(item=>item.id===selectedId)
@@ -85,11 +120,11 @@ export function CommandCenterPage() {
         {!showConversation?<EmptyCommandCenter onPrompt={send}/>:<div className="mx-auto max-w-4xl space-y-7 px-4 pb-40 pt-7 sm:px-8">
           {messages.isLoading&&<LoadingState cards={2}/>} 
           {messages.isError&&<ErrorState retry={()=>void messages.refetch()}/>} 
-          {history.map(message=><HistoryMessage key={message.id} message={message} onAction={runAction}/>)}
+          {history.map(message=><HistoryMessage key={message.id} message={message} onAction={runAction} onSuggestion={runSuggestion}/>)}
           {optimisticUser&&!historyHasUser&&<ChatBubble role="user">{optimisticUser}</ChatBubble>}
           {sendMessage.isPending&&<ChatBubble role="assistant"><TypingIndicator/></ChatBubble>}
           {sendMessage.isError&&<ChatBubble role="assistant"><div className="rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{sendMessage.error instanceof Error?sendMessage.error.message:'The command could not be completed.'}</div></ChatBubble>}
-          {transientResponse&&!historyHasResponse&&!sendMessage.isPending&&<AssistantResponseView response={transientResponse} onAction={runAction}/>} 
+          {transientResponse&&!historyHasResponse&&!sendMessage.isPending&&<AssistantResponseView response={transientResponse} onAction={runAction} onSuggestion={runSuggestion}/>} 
           <div ref={endRef}/>
         </div>}
       </div>
@@ -104,16 +139,16 @@ function EmptyCommandCenter({onPrompt}:{onPrompt:(prompt:string)=>void}){
   return <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-28 pt-12"><TinniAvatar className="size-16 shadow-lg shadow-indigo-200"/><h1 className="mt-5 font-[Manrope] text-2xl font-bold">What would you like to do?</h1><p className="mt-2 text-center text-sm text-slate-500">Ask Tinni about ERPNext data, prepare a controlled draft action, or upload a business document for OCR intake.</p><div className="mt-8 grid w-full gap-3 sm:grid-cols-2">{prompts.map((prompt,index)=><button onClick={()=>onPrompt(prompt)} key={prompt} className="card flex items-start gap-3 p-4 text-left text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">{index%2?<LayoutDashboard size={15}/>:<Sparkles size={15}/>}</span><span>{prompt}</span></button>)}</div><div className="mt-6 w-full">{preview?<DocumentMappingPreview preview={preview} busy={confirm.isPending} onConfirm={()=>confirm.mutate(preview.intake_id)} onCancel={()=>setPreview(null)}/>:<DocumentUploadPanel onProcessed={setPreview}/>}</div></div>
 }
 
-function HistoryMessage({message,onAction}:{message:ChatMessage;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void}){
+function HistoryMessage({message,onAction,onSuggestion}:{message:ChatMessage;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void;onSuggestion:(suggestion:SuggestedPrompt,source?:SourceMeta|null)=>void}){
   if(message.role==='user')return <ChatBubble role="user">{message.content}</ChatBubble>
   if(message.role!=='assistant')return null
   const chart=message.parts?.find(part=>part.type==='chart');const chartConfig=chart&&chart.type==='chart'?{chart_type:chart.chart_type,x_key:chart.x_key,y_key:chart.y_key}:null
-  return <ChatBubble role="assistant" extraction={message.extraction}><StructuredMessageParts parts={message.parts} fallback={message.content} source={message.source} permission={message.permission} actions={message.suggestedActions?.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={message.source?<PinToDashboardButton conversationId={message.conversationId} messageId={message.id} source={message.source} chartConfig={chartConfig}/>:undefined}/></ChatBubble>
+  return <ChatBubble role="assistant" extraction={message.extraction}><StructuredMessageParts parts={message.parts} fallback={message.content} source={message.source} permission={message.permission} actions={message.suggestedActions?.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={message.source?<PinToDashboardButton conversationId={message.conversationId} messageId={message.id} source={message.source} chartConfig={chartConfig}/>:undefined}/><SuggestedPromptButtons suggestions={message.suggestions} onSuggestionClick={suggestion=>onSuggestion(suggestion,message.source)}/></ChatBubble>
 }
 
-function AssistantResponseView({response,onAction}:{response:AssistantChatResponse;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void}){
+function AssistantResponseView({response,onAction,onSuggestion}:{response:AssistantChatResponse;onAction:(action:SuggestedAction,source?:SourceMeta|null)=>void;onSuggestion:(suggestion:SuggestedPrompt,source?:SourceMeta|null)=>void}){
   const chart=response.parts.find(part=>part.type==='chart');const chartConfig=chart&&chart.type==='chart'?{chart_type:chart.chart_type,x_key:chart.x_key,y_key:chart.y_key}:null
-  return <ChatBubble role="assistant" extraction={response.extraction}><StructuredMessageParts parts={response.parts} fallback={response.content} source={response.source} permission={response.permission} actions={response.suggested_actions.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={response.source?<PinToDashboardButton conversationId={response.conversation_id} messageId={response.message_id} source={response.source} chartConfig={chartConfig}/>:undefined}/></ChatBubble>
+  return <ChatBubble role="assistant" extraction={response.extraction}><StructuredMessageParts parts={response.parts} fallback={response.content} source={response.source} permission={response.permission} actions={response.suggested_actions.filter(action=>!['pin_to_dashboard','pin_overview'].includes(action.action_type))} onAction={onAction} actionSlot={response.source?<PinToDashboardButton conversationId={response.conversation_id} messageId={response.message_id} source={response.source} chartConfig={chartConfig}/>:undefined}/><SuggestedPromptButtons suggestions={response.suggestions} onSuggestionClick={suggestion=>onSuggestion(suggestion,response.source)}/></ChatBubble>
 }
 
 function TypingIndicator(){return <span className="inline-flex gap-1.5"><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/><span className="typing-dot size-1.5 rounded-full bg-indigo-500"/></span>}

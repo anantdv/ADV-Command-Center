@@ -27,8 +27,10 @@ from app.schemas.crud import CancelCrudResponse, ConfirmCrudRequest, ConfirmCrud
 from app.schemas.dashboard import DashboardWidgetSource, PinChatResultRequest, PinChatResultResponse
 from app.services.dashboard_service import DashboardService, dashboard_service
 from app.services.conversation_repository import InMemoryConversationRepository
+from app.services.suggestion_service import SuggestionService, suggestion_service
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
+from app.utils.suggestion_context_builder import SuggestionContextBuilder
 
 READ_ONLY_FALLBACK = (
     "I can help with ERPNext queries such as customers, suppliers, items, invoices, orders, "
@@ -53,6 +55,7 @@ class ChatService:
         aggregation_agent: AggregationAgent | None = None,
         workflow_agent: WorkflowAgent | None = None,
         report_composer_agent: ReportComposerAgent | None = None,
+        suggestions: SuggestionService | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -65,6 +68,8 @@ class ChatService:
         self.aggregation_agent = aggregation_agent or AggregationAgent()
         self.workflow_agent = workflow_agent or WorkflowAgent()
         self.report_composer_agent = report_composer_agent or ReportComposerAgent()
+        self.suggestions = suggestions or suggestion_service
+        self.suggestion_context = SuggestionContextBuilder()
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -80,6 +85,7 @@ class ChatService:
         request: ChatMessageRequest,
         cookies: dict | None = None,
         user: str = "unknown",
+        user_roles: list[str] | None = None,
     ) -> AssistantChatResponse:
         conversation = await self.repository.get_or_create(
             request.conversation_id,
@@ -132,6 +138,7 @@ class ChatService:
             erp_data_sent=False,
             fallback_used=intent.fallback_used,
         )
+        await self._attach_suggestions(response, request.message, intent, cookies, user, user_roles or [])
         await self._persist_response(response)
         await self._audit(user, request.message, intent, response, safety)
         return response
@@ -163,9 +170,10 @@ class ChatService:
         request: ChatMessageRequest,
         cookies: dict | None = None,
         user: str = "unknown",
+        user_roles: list[str] | None = None,
     ) -> AssistantChatResponse:
         """Backward-compatible method name for existing service callers."""
-        return await self.send_chat_message(request, cookies, user)
+        return await self.send_chat_message(request, cookies, user, user_roles)
 
     async def action(self, action_id: str, confirmed: bool) -> ChatActionResult:
         return ChatActionResult(action_id=action_id, status="confirmed" if confirmed else "cancelled")
@@ -200,6 +208,7 @@ class ChatService:
                 source=response.source,
                 permission=response.permission,
                 suggested_actions=response.suggested_actions,
+                suggestions=response.suggestions,
                 extraction=response.extraction,
             )
         )
@@ -255,6 +264,26 @@ class ChatService:
             erp_data_sent=False,
             fallback_used=intent.fallback_used,
         ))
+
+    async def _attach_suggestions(
+        self,
+        response: AssistantChatResponse,
+        previous_prompt: str,
+        intent: IntentResult,
+        cookies: dict | None,
+        user: str,
+        user_roles: list[str],
+    ) -> None:
+        context = self.suggestion_context.from_assistant_result(
+            response,
+            previous_prompt=previous_prompt,
+            conversation_id=response.conversation_id,
+            message_id=response.message_id,
+        )
+        if intent.query_plan and intent.query_plan.aggregation:
+            context.analytics_key = intent.query_plan.aggregation.chart_title
+        generated = await self.suggestions.generate_suggestions(context, user_roles, cookies, user)
+        response.suggestions = generated.suggestions
 
     @staticmethod
     def _blocked_response(

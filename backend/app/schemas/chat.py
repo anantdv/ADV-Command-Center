@@ -5,6 +5,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.common import CamelModel
 from app.schemas.crud import MissingField
+from app.schemas.suggestions import SuggestedPrompt
 
 
 class ConversationCreate(CamelModel):
@@ -169,6 +170,7 @@ class AssistantChatResponse(BaseModel):
     source: SourceMeta | None = None
     permission: PermissionMeta | None = None
     suggested_actions: list[SuggestedAction] = Field(default_factory=list)
+    suggestions: list[SuggestedPrompt] = Field(default_factory=list)
     extraction: ExtractionMeta | None = None
     # Temporary legacy fields for the current React ChatMessage contract.
     id: str
@@ -187,6 +189,7 @@ class ChatMessage(CamelModel):
     source: SourceMeta | None = None
     permission: PermissionMeta | None = None
     suggested_actions: list[SuggestedAction] = Field(default_factory=list)
+    suggestions: list[SuggestedPrompt] = Field(default_factory=list)
     extraction: ExtractionMeta | None = None
 
 

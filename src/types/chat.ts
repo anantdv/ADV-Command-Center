@@ -1,4 +1,5 @@
 export type ChatRole = 'user' | 'assistant' | 'system' | 'tool'
+import type { SuggestedPrompt } from './suggestions'
 
 export type SourceMeta = {
   source_type: 'doctype' | 'report' | 'tool'
@@ -95,6 +96,7 @@ export interface ChatMessage {
   source?: SourceMeta | null
   permission?: ChatPermissionMeta | null
   suggestedActions?: SuggestedAction[]
+  suggestions?: SuggestedPrompt[]
   extraction?: ExtractionMeta | null
 }
 
@@ -107,6 +109,7 @@ export interface AssistantChatResponse {
   source?: SourceMeta | null
   permission?: ChatPermissionMeta | null
   suggested_actions: SuggestedAction[]
+  suggestions?: SuggestedPrompt[]
   extraction?: ExtractionMeta | null
   id: string
   content: string
