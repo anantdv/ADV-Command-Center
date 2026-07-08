@@ -41,3 +41,8 @@ CREATE_AI_MAIL_DRAFT = "/api/method/ai_command_center.api.communications.create_
 CONVERT_EMAIL_TO_TASK = "/api/method/ai_command_center.api.communications.convert_email_to_task"
 CONVERT_EMAIL_TO_ISSUE = "/api/method/ai_command_center.api.communications.convert_email_to_issue"
 CONVERT_EMAIL_TO_LEAD = "/api/method/ai_command_center.api.communications.convert_email_to_lead"
+
+GET_PENDING_WORKFLOW_DOCUMENTS = "/api/method/ai_command_center.api.workflow.get_pending_workflow_documents"
+GET_WORKFLOW_DOCUMENT_DETAIL = "/api/method/ai_command_center.api.workflow.get_workflow_document_detail"
+GET_AVAILABLE_WORKFLOW_ACTIONS = "/api/method/ai_command_center.api.workflow.get_available_workflow_actions"
+APPLY_WORKFLOW_ACTION = "/api/method/ai_command_center.api.workflow.apply_workflow_action"

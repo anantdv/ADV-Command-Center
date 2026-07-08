@@ -8,6 +8,7 @@ from app.agents.runtime import AgentContext, AgentResult
 from app.utils.field_mapper import ALLOWED_CREATE_FIELDS, ALLOWED_UPDATE_FIELDS
 from app.utils.payload_builder import PayloadBuilder
 from app.utils.date_range_parser import parse_date_range_phrase
+from app.utils.workflow_intent_parser import parse_workflow_intent
 from app.config import settings
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
@@ -82,7 +83,7 @@ RECORD_ID_PATTERN = re.compile(
 class IntentResult(BaseModel):
     intent: Literal[
         "list_records", "get_record", "run_report", "summary_query", "chart_query",
-        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "blocked_write", "unsupported", "write_blocked",
+        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "blocked_write", "unsupported", "write_blocked",
     ]
     doctype: str | None = None
     report_name: str | None = None
@@ -124,6 +125,9 @@ class RouterAgent:
 
     async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
+        workflow = parse_workflow_intent(message)
+        if workflow:
+            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data={"action": workflow.get("action")} if workflow.get("action") else None, confidence=0.96, raw_prompt=message)
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
         file_format = self._file_format(text)

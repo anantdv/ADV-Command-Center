@@ -182,6 +182,55 @@ curl -X POST http://localhost:8000/api/chat/message \
   -d '{"message":"show sales orders by status as pie chart"}'
 ```
 
+## ERPNext workflow approval inbox
+
+Command Center does not implement a separate maker-checker engine. It only reads pending ERPNext/Frappe workflow actions and applies selected workflow actions through the companion app using the logged-in user's permissions.
+
+```env
+ENABLE_ERP_WORKFLOW_INBOX=true
+WORKFLOW_APPROVAL_LIMIT=50
+WORKFLOW_APPROVAL_DOCTYPES=Quotation,Sales Order,Purchase Order,Sales Invoice,Purchase Invoice,Delivery Note,Purchase Receipt,Material Request,Payment Entry,Journal Entry,Expense Claim,Leave Application,Issue
+```
+
+Manual checks:
+
+```bash
+curl -X GET http://localhost:8000/api/workflow/pending-approvals
+
+curl -X GET "http://localhost:8000/api/workflow/pending-approvals?doctype=Sales%20Invoice"
+
+curl -X GET "http://localhost:8000/api/workflow/documents/Sales%20Invoice/ACC-SINV-2025-00001"
+
+curl -X POST http://localhost:8000/api/workflow/apply-action \
+  -H "Content-Type: application/json" \
+  -d '{"doctype":"Sales Invoice","name":"ACC-SINV-2025-00001","action":"Approve","comment":"Approved from Command Center"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show my pending approvals"}'
+```
+
+## Analytics catalog API
+
+Named analytics reports wrap the aggregation engine with stable catalog keys.
+
+```env
+ENABLE_ANALYTICS=true
+ANALYTICS_MAX_SOURCE_ROWS=5000
+ANALYTICS_DEFAULT_LIMIT=20
+ANALYTICS_ALLOW_RAW_DETAIL_EXPORT=false
+```
+
+```bash
+curl -X POST http://localhost:8000/api/analytics/plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show top 10 customers by outstanding"}'
+
+curl -X POST http://localhost:8000/api/analytics/run \
+  -H "Content-Type: application/json" \
+  -d '{"analytics_key":"top_customers_by_outstanding","limit":10,"chart_type":"bar"}'
+```
+
 ## Controlled draft CRUD
 
 Supported creates are Customer, Supplier, Item, Quotation, Lead, Opportunity, and Issue. Safe updates are supported for those DocTypes using field allowlists; Quotation updates are restricted to Draft records. Direct `/api/erpnext/create-record` and `/api/erpnext/update-record` calls are intentionally disabled—the confirmation workflow is the only FastAPI write path.

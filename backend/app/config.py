@@ -80,6 +80,17 @@ class Settings(BaseSettings):
     ocr_language: str = "eng"
     document_intake_storage_root: str = "./document_intake_files"
     aggregation_max_source_rows: int = 5000
+    enable_erp_workflow_inbox: bool = True
+    workflow_approval_limit: int = 50
+    workflow_approval_doctypes: Annotated[list[str], NoDecode] = [
+        "Quotation", "Sales Order", "Purchase Order", "Sales Invoice", "Purchase Invoice",
+        "Delivery Note", "Purchase Receipt", "Material Request", "Payment Entry",
+        "Journal Entry", "Expense Claim", "Leave Application", "Issue",
+    ]
+    enable_analytics: bool = True
+    analytics_max_source_rows: int = 5000
+    analytics_default_limit: int = 20
+    analytics_allow_raw_detail_export: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -88,6 +99,13 @@ class Settings(BaseSettings):
     def parse_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("workflow_approval_doctypes", mode="before")
+    @classmethod
+    def parse_workflow_doctypes(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
     @field_validator("frappe_auth_mode")

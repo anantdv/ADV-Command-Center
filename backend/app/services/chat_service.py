@@ -1,5 +1,6 @@
 from app.agents.erp_data_agent import ERPDataAgent
 from app.agents.aggregation_agent import AggregationAgent
+from app.agents.workflow_agent import WorkflowAgent
 from app.agents.file_generation_agent import FileGenerationAgent
 from app.agents.crud_agent import CrudAgent
 from app.agents.report_agent import ReportAgent
@@ -49,6 +50,7 @@ class ChatService:
         dashboards: DashboardService | None = None,
         crud_agent: CrudAgent | None = None,
         aggregation_agent: AggregationAgent | None = None,
+        workflow_agent: WorkflowAgent | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -59,6 +61,7 @@ class ChatService:
         self.dashboards = dashboards or dashboard_service
         self.crud_agent = crud_agent or CrudAgent()
         self.aggregation_agent = aggregation_agent or AggregationAgent()
+        self.workflow_agent = workflow_agent or WorkflowAgent()
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -97,6 +100,8 @@ class ChatService:
 
         if not safety.allowed:
             response = self._blocked_response(conversation.id, intent, safety)
+        elif intent.intent in {"workflow_list_pending", "workflow_get_detail", "workflow_apply_action"}:
+            response = await self.workflow_agent.handle(intent, cookies, user)
         elif intent.intent == "run_report":
             response = await self.report_agent.handle(intent, cookies)
         elif intent.intent == "generate_file":
@@ -214,7 +219,8 @@ class ChatService:
     ) -> None:
         tool_part = next((part for part in response.parts if isinstance(part, ToolCallPart)), None)
         permission = response.permission
-        if intent.intent == "blocked_write": audit_action = "crud_blocked_action"
+        if intent.intent.startswith("workflow_"): audit_action = intent.intent
+        elif intent.intent == "blocked_write": audit_action = "crud_blocked_action"
         elif intent.intent == "crud_create": audit_action = "crud_prepare_create"
         elif intent.intent == "crud_update": audit_action = "crud_prepare_update"
         else: audit_action = "read_only_chat_tool" if tool_part else "chat_safety_response"
@@ -222,7 +228,7 @@ class ChatService:
             user=user or "unknown",
             conversation_id=response.conversation_id,
             action=audit_action,
-            agent_name="crud_agent" if intent.intent in {"crud_create", "crud_update"} else ("file_generation_agent" if intent.intent == "generate_file" else ("report_agent" if intent.intent == "run_report" else "erp_data_agent")),
+            agent_name="workflow_agent" if intent.intent.startswith("workflow_") else ("crud_agent" if intent.intent in {"crud_create", "crud_update"} else ("file_generation_agent" if intent.intent == "generate_file" else ("report_agent" if intent.intent == "run_report" else "erp_data_agent"))),
             tool_name=tool_part.tool_name if tool_part else None,
             doctype=intent.doctype,
             record_name=intent.record_name,

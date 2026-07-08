@@ -14,6 +14,8 @@ class SafetyResult(BaseModel):
 class SafetyAgent:
     async def validate(self, intent: IntentResult) -> SafetyResult:
         text = intent.raw_prompt.lower()
+        if intent.intent.startswith("workflow_"):
+            return SafetyResult(allowed=True, sensitive_intent=False, risk_level="medium" if intent.intent == "workflow_apply_action" else "low")
         if intent.intent == "blocked_write" or intent.write_requested or RouterAgent._blocked_write_requested(" ".join(text.split())):
             return SafetyResult(
                 allowed=False,
