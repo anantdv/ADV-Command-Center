@@ -695,6 +695,51 @@ show quotations between 10000 and 20000
 show overdue invoices this month
 ```
 
+## Chat detail, approvals, and clickable rows
+
+Default Command Center prompt buttons now submit real chat messages through
+`POST /api/chat/message`; they do not only fill the input box.
+
+Button/manual tests:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show customers"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show sales invoices"}'
+
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show stock balance"}'
+```
+
+Document detail tests:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show detail for ACC-SINV-2026-00122"}'
+
+curl "http://localhost:8000/api/erpnext/documents/Sales%20Invoice/ACC-SINV-2026-00122"
+```
+
+Pending approval tests:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show me my pending approval"}'
+
+curl "http://localhost:8000/api/workflow/pending-approvals"
+```
+
+Table rows include `_meta.doctype`, `_meta.name`, and `row_action` so the React
+table can open details through the same chat route:
+`show detail for <doctype> <name>`.
+
 ## Communication Center
 
 The `/api/communications` router proxies only to the installed companion app and preserves the current Frappe `sid`. It never reads the ERPNext database directly.

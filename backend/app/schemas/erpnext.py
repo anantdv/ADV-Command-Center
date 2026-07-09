@@ -95,3 +95,17 @@ class RecordMutationRequest(CamelModel):
 class RecordResponse(CamelModel):
     record: dict[str, Any]
     permissions: PermissionMeta = Field(default_factory=PermissionMeta)
+
+
+class DocumentDetailResponse(CamelModel):
+    doctype: str
+    name: str
+    title: str | None = None
+    docstatus: int | None = None
+    status: str | None = None
+    workflow_state: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    fields: dict[str, Any] = Field(default_factory=dict)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    available_workflow_actions: list[dict[str, Any]] = Field(default_factory=list)
+    permission: dict[str, Any] | None = None

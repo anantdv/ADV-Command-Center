@@ -36,6 +36,7 @@ export type TablePart = {
   columns: TableColumn[]
   rows: Array<Record<string, unknown>>
   total_rows?: number | null
+  row_action?: { type?: string; endpoint?: string } | null
 }
 export type ChartPart = {
   type: 'chart'
@@ -66,6 +67,19 @@ export type RecordPreviewPart = {
   after_data: Record<string, unknown>
   risk_level: 'medium' | 'high'
 }
+export type RecordDetailPart = {
+  type: 'record_detail'
+  doctype: string
+  name: string
+  title?: string | null
+  status?: string | null
+  workflow_state?: string | null
+  docstatus?: number | null
+  summary?: Record<string, unknown>
+  fields?: Record<string, unknown>
+  items?: Array<Record<string, unknown>>
+  available_workflow_actions?: Array<Record<string, unknown>>
+}
 export type ConfirmationPart = {
   type: 'confirmation'
   confirmation_id: string
@@ -75,7 +89,7 @@ export type ConfirmationPart = {
   cancel_label: string
   risk_level: 'medium' | 'high'
 }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | ConfirmationPart
+export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart
 
 export type SuggestedAction = {
   label: string

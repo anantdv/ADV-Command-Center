@@ -13,6 +13,7 @@ from app.schemas.common import PermissionMeta
 from app.schemas.erpnext import (
     AllowedDoctype,
     CurrentUserContext,
+    DocumentDetailResponse,
     DoctypeSchema,
     FieldSchema,
     ListRecordsResponse,
@@ -173,6 +174,60 @@ class ERPNextService:
         return RecordResponse(
             record=data.get("record") or {},
             permissions=self._permission(data.get("permission")),
+        )
+
+    async def get_document_detail(
+        self,
+        doctype: str,
+        name: str,
+        cookies: dict | None = None,
+    ) -> DocumentDetailResponse:
+        if settings.use_mock_data:
+            record = next((item for item in self._mock_records(doctype, {}) if item.get("name") == name), None)
+            if not record:
+                record = {"name": name, "status": "Draft", "docstatus": 0}
+                if doctype == "Sales Invoice":
+                    record |= {"customer": "Aster Retail Pvt Ltd", "posting_date": "2026-07-01", "grand_total": 184500, "outstanding_amount": 184500, "currency": "INR"}
+                elif doctype == "Customer":
+                    record |= {"customer_name": name, "customer_group": "Commercial", "territory": "India"}
+                elif doctype == "Item":
+                    record |= {"item_name": name, "item_group": "Products", "stock_uom": "Nos"}
+            summary_keys = [
+                "customer", "supplier", "party_name", "customer_name", "supplier_name", "item_name",
+                "posting_date", "transaction_date", "grand_total", "outstanding_amount", "currency",
+            ]
+            return DocumentDetailResponse(
+                doctype=doctype,
+                name=name,
+                title=f"{doctype} {name}",
+                docstatus=int(record.get("docstatus") or 0),
+                status=record.get("status"),
+                workflow_state=record.get("workflow_state"),
+                summary={key: record[key] for key in summary_keys if key in record},
+                fields=record,
+                items=[],
+                available_workflow_actions=[],
+                permission=FULL_PERMISSION,
+            )
+        data = self._unwrap(
+            await frappe_crud.get_document_detail(
+                self.client,
+                {"doctype": doctype, "name": name},
+                cookies,
+            )
+        )
+        return DocumentDetailResponse(
+            doctype=data.get("doctype", doctype),
+            name=data.get("name", name),
+            title=data.get("title") or data.get("name", name),
+            docstatus=data.get("docstatus"),
+            status=data.get("status"),
+            workflow_state=data.get("workflow_state"),
+            summary=data.get("summary") or {},
+            fields=data.get("fields") or {},
+            items=data.get("items") or [],
+            available_workflow_actions=data.get("available_workflow_actions") or data.get("available_actions") or [],
+            permission=data.get("permission"),
         )
 
     async def create_record(

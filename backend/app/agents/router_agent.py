@@ -9,6 +9,7 @@ from app.utils.field_mapper import ALLOWED_CREATE_FIELDS, ALLOWED_UPDATE_FIELDS
 from app.utils.payload_builder import PayloadBuilder
 from app.utils.date_range_parser import parse_date_range_phrase
 from app.utils.workflow_intent_parser import parse_workflow_intent
+from app.utils.detail_intent_parser import parse_detail_intent
 from app.config import settings
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
@@ -131,11 +132,14 @@ class RouterAgent:
         workflow = parse_workflow_intent(message)
         if workflow:
             return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data={"action": workflow.get("action")} if workflow.get("action") else None, confidence=0.96, raw_prompt=message)
+        if self._blocked_write_requested(text):
+            return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
+        detail = parse_detail_intent(message)
+        if detail.matched:
+            return IntentResult(intent="get_record", doctype=detail.doctype, record_name=detail.name, confidence=detail.confidence, raw_prompt=message, missing_info_hint="I found the document number, but I need the document type to open it." if detail.needs_doctype else None)
         if settings.enable_report_composer and ReportComposerPlanner.looks_like_report_prompt(message):
             plan = await ReportComposerPlanner().plan_from_message(message, module_context)
             return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan)
-        if self._blocked_write_requested(text):
-            return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
         file_format = self._file_format(text)
         file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
         controlled_crud_requested = bool(re.search(r"\b(create|add|update|change)\b", text))

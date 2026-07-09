@@ -9,3 +9,16 @@ export interface ListRecordsResponse { records: Array<Record<string, unknown>>; 
 export interface GetRecordRequest { doctype: string; name: string }
 export interface RecordMutationRequest { doctype: string; name?: string; values: Record<string, unknown>; confirmed?: boolean }
 export interface RecordResponse { record: Record<string, unknown>; permissions: PermissionMeta }
+export interface DocumentDetailResponse {
+  doctype: string
+  name: string
+  title?: string | null
+  docstatus?: number | null
+  status?: string | null
+  workflowState?: string | null
+  summary: Record<string, unknown>
+  fields: Record<string, unknown>
+  items: Array<Record<string, unknown>>
+  availableWorkflowActions: Array<Record<string, unknown>>
+  permission?: Record<string, unknown> | null
+}

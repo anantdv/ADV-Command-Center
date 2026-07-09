@@ -6,6 +6,7 @@ from app.schemas.common import ApiResponse
 from app.schemas.erpnext import (
     AllowedDoctype,
     CurrentUserContext,
+    DocumentDetailResponse,
     DoctypeSchema,
     DoctypeSchemaRequest,
     GetRecordRequest,
@@ -86,6 +87,22 @@ async def get_record(
             payload.doctype,
             payload.name,
             payload.fields,
+            get_frappe_cookies(request),
+        )
+    )
+
+
+@router.get("/documents/{doctype}/{name}", response_model=ApiResponse[DocumentDetailResponse])
+async def document_detail(
+    doctype: str,
+    name: str,
+    request: Request,
+) -> ApiResponse[DocumentDetailResponse]:
+    logger.info("backend_endpoint", endpoint="erpnext.document_detail", doctype=doctype)
+    return ApiResponse(
+        data=await service().get_document_detail(
+            doctype,
+            name,
             get_frappe_cookies(request),
         )
     )

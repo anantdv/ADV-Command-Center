@@ -69,6 +69,7 @@ class TablePart(BaseModel):
     columns: list[TableColumn]
     rows: list[dict[str, Any]]
     total_rows: int | None = None
+    row_action: dict[str, Any] | None = None
 
 
 class TextPart(BaseModel):
@@ -130,6 +131,20 @@ class RecordPreviewPart(BaseModel):
     risk_level: Literal["medium", "high"] = "medium"
 
 
+class RecordDetailPart(BaseModel):
+    type: Literal["record_detail"] = "record_detail"
+    doctype: str
+    name: str
+    title: str | None = None
+    status: str | None = None
+    workflow_state: str | None = None
+    docstatus: int | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    fields: dict[str, Any] = Field(default_factory=dict)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    available_workflow_actions: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ConfirmationPart(BaseModel):
     type: Literal["confirmation"] = "confirmation"
     confirmation_id: str
@@ -158,7 +173,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | ConfirmationPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart
 
 
 class AssistantChatResponse(BaseModel):

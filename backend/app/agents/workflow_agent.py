@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.agents.router_agent import IntentResult
+from app.core.exceptions import AppError
 from app.schemas.chat import AssistantChatResponse, ConfirmationPart, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart
 from app.services.workflow_service import WorkflowService
 from app.utils.datetime import utc_now
@@ -15,7 +16,11 @@ class WorkflowAgent:
     async def handle(self, intent: IntentResult, cookies: dict | None = None, user: str = "unknown") -> AssistantChatResponse:
         conversation_id = intent.conversation_id or new_id("conv")
         if intent.intent == "workflow_list_pending":
-            result = await self.service.list_pending_approvals(intent.doctype, cookies, intent.limit, user)
+            try:
+                result = await self.service.list_pending_approvals(intent.doctype, cookies, intent.limit, user)
+            except AppError as exc:
+                summary = f"I understood that you want pending approvals, but I could not fetch them from ERPNext. {exc.message}"
+                return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="error", output_summary=exc.message)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=0, filters={"doctype": intent.doctype} if intent.doctype else {}), PermissionMeta(allowed=False, reason=exc.message))
             rows = [doc.model_dump(mode="json") | {"actions": ", ".join(action.action for action in doc.available_actions)} for doc in result.documents]
             summary = "You do not have any documents pending for approval." if not rows else f"I found {len(rows)} document{'s' if len(rows) != 1 else ''} pending for your approval."
             return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="success", output_summary=f"{len(rows)} documents"), build_table_part("Pending Approvals", rows)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=len(rows), filters=result.filters))

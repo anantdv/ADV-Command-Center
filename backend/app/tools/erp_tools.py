@@ -87,6 +87,26 @@ class ERPReadTools:
             "permission": self._permission(result.permissions).model_dump(),
         }
 
+    async def get_document_detail(
+        self,
+        doctype: str,
+        name: str,
+        cookies: dict | None = None,
+    ) -> dict[str, Any]:
+        result = await self.service.get_document_detail(doctype=doctype, name=name, cookies=cookies)
+        return {
+            "detail": result.model_dump(mode="json"),
+            "record_count": 1,
+            "source": SourceMeta(
+                source_type="doctype",
+                source_name=doctype,
+                record_count=1,
+                filters={"name": name},
+                doctype=doctype,
+            ).model_dump(),
+            "permission": result.permission or PermissionMeta(allowed=True).model_dump(),
+        }
+
     @staticmethod
     def _permission(permission: Any) -> PermissionMeta:
         return PermissionMeta(
@@ -99,4 +119,4 @@ class ERPReadTools:
         )
 
 
-ERP_TOOL_NAMES = ["list_records", "get_record"]
+ERP_TOOL_NAMES = ["list_records", "get_record", "get_document_detail"]

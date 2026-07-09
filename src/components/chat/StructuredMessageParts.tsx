@@ -11,6 +11,7 @@ import type { ChartPart, ChatMessagePart, ChatPermissionMeta, SourceMeta, Sugges
 import { useAuthStore } from '../../store/useAuthStore'
 import { formatCurrency } from '../../utils/formatters'
 import { ColumnSelector } from '../reports/ColumnSelector'
+import { RecordDetailCard } from '../results/RecordDetailCard'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -19,10 +20,11 @@ type Props = {
   permission?: ChatPermissionMeta | null
   actions?: SuggestedAction[]
   onAction?: (action:SuggestedAction, source?:SourceMeta|null)=>void
+  onRowClick?: (row:Record<string,unknown>)=>void
   actionSlot?: ReactNode
 }
 
-export function StructuredMessageParts({ parts = [], fallback, source, permission, actions = [], onAction, actionSlot }: Props) {
+export function StructuredMessageParts({ parts = [], fallback, source, permission, actions = [], onAction, onRowClick, actionSlot }: Props) {
   const currency=useAuthStore(state=>state.user?.companyCurrency)||'INR'
   const hasTextPart = parts.some(part => part.type === 'text')
   return <div className="space-y-3">
@@ -31,11 +33,12 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
     {parts.map((part,index) => {
       if(part.type==='text') return <p key={`text-${index}`}>{part.content}</p>
       if(part.type==='tool_call') return <ToolExecutionCard key={`tool-${index}`} part={part}/>
-      if(part.type==='table') return <DynamicTable key={`table-${index}`} part={part} currency={currency}/>
+      if(part.type==='table') return <DynamicTable key={`table-${index}`} part={part} currency={currency} onRowClick={onRowClick}/>
       if(part.type==='chart') return <DynamicChart key={`chart-${index}`} part={part}/>
       if(part.type==='file') return <GeneratedFileCard key={`file-${index}`} part={part}/>
       if(part.type==='missing_fields') return <MissingFieldsForm key={`missing-${index}`} part={part}/>
       if(part.type==='record_preview') return <RecordPreviewCard key={`preview-${index}`} part={part}/>
+      if(part.type==='record_detail') return <RecordDetailCard key={`detail-${index}`} data={part}/>
       if(part.type==='confirmation') return <ConfirmationCard key={`confirm-${index}`} part={part}/>
       return null
     })}
@@ -54,15 +57,16 @@ function SourceStrip({source,permission}:{source:SourceMeta;permission?:ChatPerm
   </div>
 }
 
-function DynamicTable({part,currency}:{part:TablePart;currency:string}){
+function DynamicTable({part,currency,onRowClick}:{part:TablePart;currency:string;onRowClick?: (row:Record<string,unknown>)=>void}){
   const [customize,setCustomize]=useState(false)
-  const [visible,setVisible]=useState<string[]>(part.columns.map(column=>column.key))
-  const available=useMemo(()=>part.columns.map(column=>({key:column.key,label:column.label,fieldtype:column.type||'Data',visible:true,source:'doctype' as const})),[part.columns])
-  const columns=part.columns.filter(column=>visible.includes(column.key))
+  const publicColumns=useMemo(()=>part.columns.filter(column=>!column.key.startsWith('_')),[part.columns])
+  const [visible,setVisible]=useState<string[]>(publicColumns.map(column=>column.key))
+  const available=useMemo(()=>publicColumns.map(column=>({key:column.key,label:column.label,fieldtype:column.type||'Data',visible:true,source:'doctype' as const})),[publicColumns])
+  const columns=publicColumns.filter(column=>visible.includes(column.key))
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex items-center justify-between border-b bg-slate-50/70 px-4 py-3"><div><p className="text-xs font-bold text-slate-800">{part.title}</p><p className="mt-0.5 text-[10px] text-slate-400">Showing {part.rows.length}{part.total_rows!==null&&part.total_rows!==undefined?` of ${part.total_rows}`:''} rows · {columns.length} columns</p></div><button onClick={()=>setCustomize(value=>!value)} className="btn-secondary h-8 px-2 text-xs"><ListFilter size={14}/>Columns</button></div>
     {customize&&<div className="border-b p-3"><ColumnSelector columns={available} selected={visible} onApply={columns=>{setVisible(columns);setCustomize(false)}}/></div>}
-    {part.rows.length===0?<div className="px-4 py-8 text-center text-xs text-slate-400">No records matched this query.</div>:<div className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[620px] text-left"><thead><tr className="border-b border-slate-100">{columns.map(column=><th key={column.key} className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{column.label}</th>)}</tr></thead><tbody>{part.rows.map((row,rowIndex)=><tr key={String(row.name||row.id||rowIndex)} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">{columns.map(column=><td key={column.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{formatCell(row[column.key],column.type,column.key,currency)}</td>)}</tr>)}</tbody></table></div>}
+    {part.rows.length===0?<div className="px-4 py-8 text-center text-xs text-slate-400">No records matched this query.</div>:<div className="overflow-x-auto scrollbar-thin"><table className="w-full min-w-[620px] text-left"><thead><tr className="border-b border-slate-100">{columns.map(column=><th key={column.key} className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">{column.label}</th>)}</tr></thead><tbody>{part.rows.map((row,rowIndex)=>{const meta=row._meta as {clickable?:boolean;doctype?:string;name?:string}|undefined;const clickable=Boolean(meta?.clickable&&meta.doctype&&meta.name);return <tr key={String(row.name||row.id||rowIndex)} onClick={()=>clickable&&onRowClick?.(row)} className={`border-b border-slate-100 last:border-0 ${clickable?'cursor-pointer hover:bg-indigo-50/70':'hover:bg-slate-50/70'}`}>{columns.map(column=><td key={column.key} className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{formatCell(row[column.key],column.type,column.key,currency)}</td>)}</tr>})}</tbody></table></div>}
   </div>
 }
 

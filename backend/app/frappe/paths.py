@@ -7,6 +7,7 @@ CHECK_PERMISSION = "/api/method/ai_command_center.api.permissions.check_permissi
 
 LIST_RECORDS = "/api/method/ai_command_center.api.crud.list_records"
 GET_RECORD = "/api/method/ai_command_center.api.crud.get_record"
+GET_DOCUMENT_DETAIL = "/api/method/ai_command_center.api.crud.get_document_detail"
 CREATE_RECORD = "/api/method/ai_command_center.api.crud.create_record"
 UPDATE_RECORD = "/api/method/ai_command_center.api.crud.update_record"
 

@@ -2,11 +2,13 @@ from app.agents.router_agent import IntentResult
 from app.schemas.chat import (
     AssistantChatResponse,
     PermissionMeta,
+    RecordDetailPart,
     SourceMeta,
     SuggestedAction,
     TextPart,
     ToolCallPart,
 )
+from app.core.exceptions import AppError
 from app.tools.erp_tools import ERPReadTools
 from app.utils.chart_builder import try_build_chart
 from app.utils.datetime import utc_now
@@ -31,21 +33,10 @@ class ERPDataAgent:
             )
 
         if not intent.doctype:
-            raise ValueError("ERPDataAgent requires a DocType intent")
+            summary = intent.missing_info_hint or "I understood that you want an ERPNext record, but I need the document type to fetch it."
+            return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary)], permission=PermissionMeta(allowed=False, reason=summary))
         if intent.intent == "get_record" and intent.record_name:
-            tool_name = "get_record"
-            result = await self.tools.get_record(
-                intent.doctype,
-                intent.record_name,
-                intent.fields,
-                cookies,
-            )
-            summary = (
-                f"I found {intent.doctype} {intent.record_name} and included the fields you have permission to view."
-                if result["record_count"]
-                else f"No permitted {intent.doctype} record was found for {intent.record_name}."
-            )
-            title = f"{intent.doctype} {intent.record_name}"
+            return await self.handle_document_detail(intent.doctype, intent.record_name, cookies, conversation_id)
         else:
             tool_name = "list_records"
             result = await self.tools.list_records(
@@ -70,7 +61,7 @@ class ERPDataAgent:
                 input_summary=self._input_summary(intent),
                 output_summary=f"{result['record_count']} records returned",
             ),
-            build_table_part(title, rows),
+            build_table_part(title, rows, doctype=intent.doctype),
         ]
         chart = try_build_chart(title, rows)
         if chart:
@@ -83,6 +74,59 @@ class ERPDataAgent:
             source=SourceMeta.model_validate(result["source"]),
             permission=PermissionMeta.model_validate(result["permission"]),
             suggested_actions=self._read_actions(),
+        )
+
+    async def handle_document_detail(
+        self,
+        doctype: str,
+        name: str,
+        cookies: dict | None = None,
+        conversation_id: str | None = None,
+    ) -> AssistantChatResponse:
+        conversation_id = conversation_id or new_id("conv")
+        try:
+            result = await self.tools.get_document_detail(doctype, name, cookies)
+        except AppError as exc:
+            summary = f"I understood that you want to open {doctype} {name}, but I could not fetch it from ERPNext."
+            if exc.message:
+                summary = f"{summary} {exc.message}"
+            return self._response(
+                conversation_id,
+                "get_record",
+                summary,
+                [
+                    TextPart(content=summary),
+                    ToolCallPart(tool_name="get_document_detail", status="error", input_summary=f"{doctype} {name}", output_summary=exc.message),
+                ],
+                source=SourceMeta(source_type="doctype", source_name=doctype, record_count=0, filters={"name": name}, doctype=doctype),
+                permission=PermissionMeta(allowed=False, reason=exc.message),
+            )
+        detail = result["detail"]
+        summary = f"Here are the details for {doctype} {name}."
+        parts = [
+            TextPart(content=summary),
+            ToolCallPart(tool_name="get_document_detail", status="success", input_summary=f"{doctype} {name}", output_summary="1 record returned"),
+            RecordDetailPart(
+                doctype=detail.get("doctype") or doctype,
+                name=detail.get("name") or name,
+                title=detail.get("title"),
+                status=detail.get("status"),
+                workflow_state=detail.get("workflow_state"),
+                docstatus=detail.get("docstatus"),
+                summary=detail.get("summary") or {},
+                fields=detail.get("fields") or {},
+                items=detail.get("items") or [],
+                available_workflow_actions=detail.get("available_workflow_actions") or [],
+            ),
+        ]
+        return self._response(
+            conversation_id,
+            "get_record",
+            summary,
+            parts,
+            source=SourceMeta.model_validate(result["source"]),
+            permission=PermissionMeta.model_validate(result["permission"]),
+            suggested_actions=self._detail_actions(),
         )
 
     @staticmethod
@@ -125,6 +169,13 @@ class ERPDataAgent:
             SuggestedAction(label="Export Excel", action_type="export_excel"),
             SuggestedAction(label="Export CSV", action_type="export_csv"),
             SuggestedAction(label="Refine Filters", action_type="refine_filters"),
+        ]
+
+    @staticmethod
+    def _detail_actions() -> list[SuggestedAction]:
+        return [
+            SuggestedAction(label="Show Related Records", action_type="view_related"),
+            SuggestedAction(label="Open Module", action_type="open_module"),
         ]
 
     @staticmethod

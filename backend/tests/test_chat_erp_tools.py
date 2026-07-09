@@ -78,7 +78,8 @@ def test_single_record_detection(client):
     data = send(client, "show invoice ACC-SINV-2026-00001")
     assert data["intent"] == "get_record"
     assert data["source"]["filters"]["name"] == "ACC-SINV-2026-00001"
-    assert part(data, "tool_call")["tool_name"] == "get_record"
+    assert part(data, "tool_call")["tool_name"] == "get_document_detail"
+    assert part(data, "record_detail")["name"] == "ACC-SINV-2026-00001"
 
 
 def test_registry_exposes_no_write_tools():

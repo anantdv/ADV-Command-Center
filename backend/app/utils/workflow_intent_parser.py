@@ -12,7 +12,7 @@ def parse_workflow_intent(message: str) -> dict[str, Any] | None:
     doctype = resolve_doctype(message)
     docname = _document_name(message)
 
-    if re.search(r"\b(?:pending approvals|documents pending for my approval|pending .* approvals)\b", text):
+    if re.search(r"\b(?:pending approval|pending approvals|my pending approval|my pending approvals|documents pending for my approval|pending .* approval|pending .* approvals|approval documents)\b", text):
         return {"intent": "workflow_list_pending", "doctype": doctype}
 
     if re.search(r"\b(?:approval details|approval detail|workflow details|workflow detail|actions available|available actions)\b", text):
