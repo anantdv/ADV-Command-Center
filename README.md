@@ -31,3 +31,23 @@ npm run build
 ```
 
 Serve `dist/` through Nginx and run FastAPI from its dedicated virtual environment through systemd. Do not run the backend inside the Frappe Bench Python environment.
+
+## Module workspace manual checks
+
+The module pages are ERP workspaces only; Tinni chat lives in the Command Center.
+
+```text
+/modules/selling
+/modules/selling/doctype/Customer
+/modules/selling/doctype/Sales%20Invoice
+/command-center?module=Selling
+```
+
+Expected behavior:
+
+- `/modules/selling` has no bottom chat and no overlapping fixed chat area.
+- “Ask AI” routes to `/command-center?module=Selling`.
+- KPI/report/quick actions route to Command Center with `module`, `prompt`, and `autoRun`.
+- DocType cards open list views with search, pagination, and clickable rows.
+- Row click opens a permission-aware record detail drawer using the global ERPNext document detail API.
+- Command Center “Pin” can target Overview or an accessible module; module-targeted pins appear on that module dashboard and are not shown on Overview.

@@ -57,7 +57,17 @@ class DashboardService:
         return await self.get_overview(cookies, user, roles)
 
     async def list_widgets(self, cookies: dict | None = None, user: str = "unknown", roles: list[str] | None = None) -> list[DashboardWidgetData]:
-        visible = [item for item in self._load_all() if self._visible(item, user, roles)]
+        visible = [item for item in self._load_all() if self._visible(item, user, roles) and item.get("target_type", "overview") == "overview"]
+        return await self._refresh_many(visible, cookies, user)
+
+    async def list_module_widgets(self, module_name: str, cookies: dict | None = None, user: str = "unknown", roles: list[str] | None = None) -> list[DashboardWidgetData]:
+        normalized = module_name.lower()
+        visible = [
+            item for item in self._load_all()
+            if self._visible(item, user, roles)
+            and item.get("target_type") == "module"
+            and str(item.get("module_name") or "").lower() == normalized
+        ]
         return await self._refresh_many(visible, cookies, user)
 
     async def create_widget(self, request: DashboardWidgetCreateRequest, cookies: dict | None = None, user: str = "unknown", event: str = "dashboard_widget_created") -> DashboardWidgetData:
@@ -102,8 +112,11 @@ class DashboardService:
         return True
 
     async def pin_from_chat(self, request: PinChatResultRequest, cookies: dict | None = None, user: str = "unknown") -> DashboardWidgetData:
-        create = DashboardWidgetCreateRequest(title=request.title, widget_type=request.widget_type, source=request.source, chart_config=request.chart_config, conversation_id=request.conversation_id, message_id=request.message_id, layout=DashboardWidgetLayout(w=6,h=4) if request.widget_type not in {"kpi","summary_card"} else DashboardWidgetLayout())
-        return await self.create_widget(create, cookies, user, "dashboard_widget_pinned_from_chat")
+        if request.target_type == "module" and not request.module_name:
+            raise AppError("module_name is required when pinning to a module.", 422)
+        create = DashboardWidgetCreateRequest(title=request.title, widget_type=request.widget_type, source=request.source, chart_config=request.chart_config, conversation_id=request.conversation_id, message_id=request.message_id, target_type=request.target_type, module_name=request.module_name, layout=DashboardWidgetLayout(w=6,h=4) if request.widget_type not in {"kpi","summary_card"} else DashboardWidgetLayout())
+        event = "module_widget_pinned" if request.target_type == "module" else "dashboard_widget_pinned_from_chat"
+        return await self.create_widget(create, cookies, user, event)
 
     async def _build_defaults(self, specs: list[DashboardWidgetCreateRequest], cookies: dict | None) -> list[DashboardWidgetData]:
         results = await asyncio.gather(*(self.builder.build_widget_data(spec, cookies, f"default_{index}") for index, spec in enumerate(specs)), return_exceptions=True)

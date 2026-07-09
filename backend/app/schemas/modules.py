@@ -91,3 +91,31 @@ class ModuleDashboardResponse(CamelModel):
     quick_actions: list[dict[str, Any]] = Field(default_factory=list)
     permissions: dict[str, Any] = Field(default_factory=dict)
     doctypes: list[str] = Field(default_factory=list)
+    pinned_widgets: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ModuleDoctypeInfo(CamelModel):
+    doctype: str
+    label: str
+    description: str | None = None
+    icon: str | None = None
+    can_read: bool = True
+    can_create: bool = False
+    record_count: int | None = None
+    route: str
+    default_fields: list[str] = Field(default_factory=list)
+
+
+class ModuleDoctypeNavigationResponse(CamelModel):
+    module_name: str
+    doctypes: list[ModuleDoctypeInfo] = Field(default_factory=list)
+
+
+class ModuleDoctypeRecordsResponse(CamelModel):
+    module_name: str
+    doctype: str
+    page: int
+    page_size: int
+    total: int
+    columns: list[dict[str, Any]] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)

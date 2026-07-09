@@ -54,6 +54,8 @@ class DashboardWidgetCreateRequest(BaseModel):
     allowed_roles: list[str] = Field(default_factory=list)
     conversation_id: str | None = None
     message_id: str | None = None
+    target_type: Literal["overview", "module"] = "overview"
+    module_name: str | None = None
 
     @field_validator("chart_config")
     @classmethod
@@ -96,6 +98,8 @@ class DashboardWidgetData(BaseModel):
     allowed_roles: list[str] = Field(default_factory=list)
     conversation_id: str | None = None
     message_id: str | None = None
+    target_type: Literal["overview", "module"] = "overview"
+    module_name: str | None = None
     # Backward-compatible KPI presentation fields.
     label: str | None = None
     value: str | int | float | None = None
@@ -126,6 +130,8 @@ class PinChatResultRequest(BaseModel):
     widget_type: WidgetType
     source: DashboardWidgetSource
     chart_config: dict[str, Any] | None = None
+    target_type: Literal["overview", "module"] = "overview"
+    module_name: str | None = None
 
 
 class PinChatResultResponse(BaseModel):

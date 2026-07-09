@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Clock3, FileUp, LayoutDashboard, MessageSquarePlus, Pin, Search, Sparkles, X } from 'lucide-react'
 import { ChatMessage as ChatBubble } from '../components/chat/ChatMessage'
 import { CommandInput } from '../components/chat/CommandInput'
@@ -29,6 +29,10 @@ const prompts = [
 
 export function CommandCenterPage() {
   const navigate=useNavigate()
+  const [searchParams]=useSearchParams()
+  const moduleContext=searchParams.get('module')||undefined
+  const promptParam=searchParams.get('prompt')||''
+  const autoRun=searchParams.get('autoRun')==='true'
   const conversations = useConversations()
   const sendMessage = useSendChatMessage()
   const [selectedId,setSelectedId] = useState<string>()
@@ -39,6 +43,7 @@ export function CommandCenterPage() {
   const [intakePreview,setIntakePreview] = useState<DocumentPreview|null>(null)
   const confirmIntake=useConfirmDocumentDraft()
   const endRef=useRef<HTMLDivElement>(null)
+  const autoRunHandledRef=useRef(false)
   const messages=useConversationMessages(selectedId||'')
 
   useEffect(()=>{
@@ -54,10 +59,17 @@ export function CommandCenterPage() {
     if(sendMessage.isPending)return
     setOptimisticUser(text)
     setTransientResponse(null)
-    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text},{
+    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text,module_context:moduleContext},{
       onSuccess:response=>{setSelectedId(response.conversation_id);setNewChat(false);setTransientResponse(response)},
     })
   }
+  useEffect(()=>{
+    if(autoRun&&promptParam&&!autoRunHandledRef.current){
+      autoRunHandledRef.current=true
+      send(promptParam)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[autoRun,promptParam])
   const runAction=(action:SuggestedAction,source?:SourceMeta|null)=>{
     if(action.disabled)return
     if(action.action_type==='download_file'&&action.reason){window.location.assign(action.reason);return}
@@ -121,7 +133,7 @@ export function CommandCenterPage() {
       <div className="border-t p-4"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold text-slate-500">CONTROLLED ACTIONS</p><p className="mt-2 text-[10px] leading-4 text-slate-400">Reads are live. Safe draft creates and field updates require your confirmation.</p></div></div>
     </aside>
     <section className="relative flex min-w-0 flex-1 flex-col bg-[#f8f9fc]">
-      <div className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div className="flex items-center gap-2.5"><TinniAvatar className="size-8"/><div><p className="text-sm font-bold text-slate-800">{newChat?'New command':selected?.title||'Tinni'}</p><p className="text-[10px] text-slate-400">Tinni · Live ERPNext · Controlled draft actions</p></div></div><div className="flex items-center gap-2"><button onClick={()=>setShowIntake(true)} className="btn-secondary h-9 px-3 text-xs"><FileUp size={14}/>OCR intake</button><button aria-label="Pin conversation" className="hidden rounded-lg border p-2 text-slate-400 hover:bg-slate-50 sm:block"><Pin size={15}/></button></div></div>
+      <div className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div className="flex items-center gap-2.5"><TinniAvatar className="size-8"/><div><p className="text-sm font-bold text-slate-800">{newChat?'New command':selected?.title||'Tinni'}</p><p className="text-[10px] text-slate-400">Tinni · Live ERPNext · Controlled draft actions {moduleContext?`· ${moduleContext} context enabled`:''}</p></div></div><div className="flex items-center gap-2">{moduleContext&&<span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">{moduleContext} context</span>}<button onClick={()=>setShowIntake(true)} className="btn-secondary h-9 px-3 text-xs"><FileUp size={14}/>OCR intake</button><button aria-label="Pin conversation" className="hidden rounded-lg border p-2 text-slate-400 hover:bg-slate-50 sm:block"><Pin size={15}/></button></div></div>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {!showConversation?<EmptyCommandCenter onPrompt={send}/>:<div className="mx-auto max-w-4xl space-y-7 px-4 pb-40 pt-7 sm:px-8">
           {messages.isLoading&&<LoadingState cards={2}/>} 
@@ -134,7 +146,7 @@ export function CommandCenterPage() {
           <div ref={endRef}/>
         </div>}
       </div>
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation</p></div></div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
     </section>
     {showIntake&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-slate-900">OCR Document Intake</h2><p className="text-xs text-slate-400">Upload supplier invoices, customer POs, quotations, or delivery documents.</p></div><button className="rounded-lg p-2 hover:bg-slate-100" onClick={()=>{setShowIntake(false);setIntakePreview(null)}}><X size={18}/></button></div>{intakePreview?<DocumentMappingPreview preview={intakePreview} busy={confirmIntake.isPending} onConfirm={()=>confirmIntake.mutate(intakePreview.intake_id)} onCancel={()=>setIntakePreview(null)}/>:<DocumentUploadPanel onProcessed={setIntakePreview}/>}</div></div>}
   </div>

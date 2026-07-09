@@ -1,8 +1,9 @@
 import { Paperclip, Send, Mic, Sparkles } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
-export function CommandInput({ onSend, compact = false }: { onSend?: (text: string) => void; compact?: boolean }) {
+export function CommandInput({ onSend, compact = false, initialValue = '' }: { onSend?: (text: string) => void; compact?: boolean; initialValue?: string }) {
   const [text, setText] = useState('')
+  useEffect(()=>{setText(initialValue)},[initialValue])
   const submit = (e: FormEvent) => { e.preventDefault(); if (!text.trim()) return; onSend?.(text); setText('') }
   return <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_10px_40px_rgba(15,23,42,.10)] transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-50">
     {!compact && <textarea value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submit(e)} }} rows={2} placeholder="Ask Tinni anything about your business…" className="max-h-32 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-slate-400" />}

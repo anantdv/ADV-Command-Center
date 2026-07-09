@@ -60,6 +60,16 @@ def test_pin_chat_result_to_dashboard(client):
     assert any(widget['widget_id']==pinned['widget_id'] for widget in overview['widgets'])
 
 
+def test_pin_chat_result_to_module_is_not_shown_on_overview(client):
+    payload={"conversation_id":"conv_123","message_id":"msg_456","title":"Pinned Selling Customers","widget_type":"table","target_type":"module","module_name":"Selling","source":{"source_type":"doctype","doctype":"Customer","fields":["name","customer_name"]}}
+    pinned=ok(client.post('/api/chat/actions/pin-to-dashboard',json=payload))
+    overview=ok(client.get('/api/dashboard/overview'))
+    selling=ok(client.get('/api/modules/Selling/dashboard'))
+
+    assert not any(widget['widget_id']==pinned['widget_id'] for widget in overview['widgets'])
+    assert any(widget['widget_id']==pinned['widget_id'] for widget in selling['pinnedWidgets'])
+
+
 def test_invalid_and_raw_sql_sources_are_rejected(client):
     invalid=client.post('/api/dashboard/widgets',json={"title":"Bad","widget_type":"table","source":{"source_type":"raw_sql","source_name":"select * from tabCustomer"}})
     assert invalid.status_code==422
