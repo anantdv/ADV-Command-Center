@@ -740,6 +740,40 @@ Table rows include `_meta.doctype`, `_meta.name`, and `row_action` so the React
 table can open details through the same chat route:
 `show detail for <doctype> <name>`.
 
+## Permission-aware module workspaces
+
+Modules are loaded from permission-aware ERPNext DocType access. The first full
+workspace is Selling; other accessible modules use the reusable generic module
+workspace shell.
+
+List accessible modules:
+
+```bash
+curl -X GET http://localhost:8000/api/modules
+```
+
+Selling dashboard:
+
+```bash
+curl -X GET http://localhost:8000/api/modules/Selling/dashboard
+```
+
+Selling-context chat:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show invoices for may 2025","module_context":"Selling"}'
+```
+
+Selling pending approvals:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show pending approvals","module_context":"Selling"}'
+```
+
 ## Communication Center
 
 The `/api/communications` router proxies only to the installed companion app and preserves the current Frappe `sid`. It never reads the ERPNext database directly.

@@ -17,7 +17,17 @@ class WorkflowAgent:
         conversation_id = intent.conversation_id or new_id("conv")
         if intent.intent == "workflow_list_pending":
             try:
-                result = await self.service.list_pending_approvals(intent.doctype, cookies, intent.limit, user)
+                doctypes = (intent.data or {}).get("doctypes") if isinstance(intent.data, dict) else None
+                if doctypes:
+                    documents = []
+                    filters = {"doctypes": doctypes}
+                    for doctype in doctypes:
+                        partial = await self.service.list_pending_approvals(doctype, cookies, intent.limit, user)
+                        documents.extend(partial.documents)
+                    from app.schemas.workflow import PendingApprovalsResponse
+                    result = PendingApprovalsResponse(documents=documents[:intent.limit], total=len(documents[:intent.limit]), filters=filters)
+                else:
+                    result = await self.service.list_pending_approvals(intent.doctype, cookies, intent.limit, user)
             except AppError as exc:
                 summary = f"I understood that you want pending approvals, but I could not fetch them from ERPNext. {exc.message}"
                 return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="error", output_summary=exc.message)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=0, filters={"doctype": intent.doctype} if intent.doctype else {}), PermissionMeta(allowed=False, reason=exc.message))

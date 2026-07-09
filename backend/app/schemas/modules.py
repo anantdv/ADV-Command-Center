@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import Field
 
 from app.schemas.common import CamelModel, PermissionMeta
 
@@ -27,3 +29,65 @@ class ModuleRecords(CamelModel):
 class ModuleReports(CamelModel):
     reports: list[str]
     permissions: PermissionMeta
+
+
+class ERPModule(CamelModel):
+    module_name: str
+    label: str
+    icon: str | None = None
+    description: str | None = None
+    category: str | None = None
+    route: str
+    enabled: bool = True
+    accessible: bool = True
+    doctypes: list[str] = Field(default_factory=list)
+
+
+class ModuleKPI(CamelModel):
+    id: str
+    label: str
+    value: int | float | str
+    value_type: Literal["number", "currency", "percent", "text"] = "number"
+    currency: str | None = None
+    trend_label: str | None = None
+    trend_value: float | None = None
+    source_doctype: str | None = None
+    filters: dict[str, Any] = Field(default_factory=dict)
+    action_prompt: str | None = None
+
+
+class ModuleReportCard(CamelModel):
+    id: str
+    title: str
+    description: str | None = None
+    report_type: Literal["table", "chart", "standard_report", "analytics"] = "table"
+    source_doctype: str | None = None
+    report_name: str | None = None
+    chart_type: str | None = None
+    data: list[dict[str, Any]] = Field(default_factory=list)
+    columns: list[dict[str, Any]] = Field(default_factory=list)
+    action_prompt: str | None = None
+
+
+class ModuleRecentDocument(CamelModel):
+    doctype: str
+    name: str
+    title: str | None = None
+    status: str | None = None
+    workflow_state: str | None = None
+    party: str | None = None
+    amount: float | None = None
+    currency: str | None = None
+    date: str | None = None
+    modified: str | None = None
+
+
+class ModuleDashboardResponse(CamelModel):
+    module_name: str
+    label: str
+    kpis: list[ModuleKPI] = Field(default_factory=list)
+    reports: list[ModuleReportCard] = Field(default_factory=list)
+    recent_documents: list[ModuleRecentDocument] = Field(default_factory=list)
+    quick_actions: list[dict[str, Any]] = Field(default_factory=list)
+    permissions: dict[str, Any] = Field(default_factory=dict)
+    doctypes: list[str] = Field(default_factory=list)

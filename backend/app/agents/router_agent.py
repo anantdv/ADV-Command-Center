@@ -131,7 +131,10 @@ class RouterAgent:
         text = " ".join(message.lower().split())
         workflow = parse_workflow_intent(message)
         if workflow:
-            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data={"action": workflow.get("action")} if workflow.get("action") else None, confidence=0.96, raw_prompt=message)
+            data = {"action": workflow.get("action")} if workflow.get("action") else None
+            if module_context and module_context.lower() == "selling" and workflow["intent"] == "workflow_list_pending" and not workflow.get("doctype"):
+                data = {"doctypes": ["Quotation", "Sales Order", "Sales Invoice", "Delivery Note"]}
+            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data=data, confidence=0.96, raw_prompt=message)
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
         detail = parse_detail_intent(message)
@@ -144,7 +147,7 @@ class RouterAgent:
         file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
         controlled_crud_requested = bool(re.search(r"\b(create|add|update|change)\b", text))
         if (file_requested or controlled_crud_requested) and not settings.enable_llm_extraction:
-            return await self._classify_rules(message)
+            return await self._classify_rules(message, module_context)
         extracted = await self.extraction.extract_intent(message, module_context, user=user, conversation_id=conversation_id)
         if extracted and extracted.intent == "blocked_write":
             await self._audit_routing("llm_blocked_write_detected", extracted, user, conversation_id)
@@ -154,11 +157,11 @@ class RouterAgent:
         if extracted:
             await self._audit_routing("llm_extraction_fallback_to_rules", extracted, user, conversation_id, fallback=True)
         if file_requested or controlled_crud_requested:
-            return await self._classify_rules(message)
+            return await self._classify_rules(message, module_context)
         plan = await self.query_planner.plan(message, module_context, user=user, conversation_id=conversation_id, extracted_intent=extracted)
         if plan.intent != "unsupported":
             return self._from_query_plan(plan, message, bool(extracted))
-        result = await self._classify_rules(message)
+        result = await self._classify_rules(message, module_context)
         result.extraction_method = "rules"
         result.fallback_used = bool(extracted)
         return result
@@ -184,8 +187,17 @@ class RouterAgent:
             erp_data_sent=False,
         ))
 
-    async def _classify_rules(self, message: str) -> IntentResult:
+    async def _classify_rules(self, message: str, module_context: str | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
+        if module_context and module_context.lower() == "selling":
+            if re.search(r"\bshow\s+(?:my\s+)?(?:invoices|invoice)\b", text):
+                text = text.replace("invoices", "sales invoices").replace("invoice", "sales invoice")
+            if re.search(r"\bshow\s+(?:my\s+)?(?:orders|order)\b", text):
+                text = text.replace("orders", "sales orders").replace("order", "sales order")
+            if re.search(r"\bparties\b", text):
+                text = text.replace("parties", "customers")
+            if re.search(r"\btop customers\b", text):
+                return IntentResult(intent="chart_query", doctype="Sales Invoice", fields=["customer", "grand_total"], limit=500, confidence=.94, raw_prompt=message, filters={})
         file_format = self._file_format(text)
         file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
         if file_requested:
