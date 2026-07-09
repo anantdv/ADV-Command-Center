@@ -2,6 +2,8 @@ from fastapi import APIRouter, Query, Request
 
 from app.dependencies import CurrentUserDep, get_frappe_cookies
 from app.schemas.common import ApiResponse
+from app.schemas.dashboard import DashboardWidgetData
+from app.schemas.erpnext import DocumentDetailResponse
 from app.schemas.modules import ModuleDashboardResponse, ModuleDetail, ModuleDoctypeNavigationResponse, ModuleDoctypeRecordsResponse, ModuleRecords, ModuleReports, ModuleSummary
 from app.services.module_service import module_service
 
@@ -41,6 +43,16 @@ async def module_doctype_records(
     fields: list[str] | None = Query(default=None),
 ) -> ApiResponse[ModuleDoctypeRecordsResponse]:
     return ApiResponse(data=await module_service.get_module_doctype_records(module_name, doctype, page, page_size, search, order_by, fields, get_frappe_cookies(request)))
+
+
+@router.get("/{module_name}/doctype/{doctype}/records/{name}", response_model=ApiResponse[DocumentDetailResponse])
+async def module_doctype_record_detail(module_name: str, doctype: str, name: str, request: Request, _: CurrentUserDep) -> ApiResponse[DocumentDetailResponse]:
+    return ApiResponse(data=await module_service.get_module_doctype_record_detail(module_name, doctype, name, get_frappe_cookies(request)))
+
+
+@router.get("/{module_name}/pinned-widgets", response_model=ApiResponse[list[DashboardWidgetData]])
+async def module_pinned_widgets(module_name: str, request: Request, user: CurrentUserDep) -> ApiResponse[list[DashboardWidgetData]]:
+    return ApiResponse(data=await module_service.get_pinned_widgets(module_name, get_frappe_cookies(request), user.user, user.roles))
 
 
 @router.get("/{module_name}/records", response_model=ApiResponse[ModuleRecords])

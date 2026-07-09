@@ -10,7 +10,9 @@ import type { DocumentDetailResponse } from '../../types/erpnext'
 import type { RecordDetailPart } from '../../types/chat'
 
 export function ModuleDoctypeListPage(){
-  const {moduleName='Selling',doctype='Customer'}=useParams()
+  const params=useParams()
+  const moduleName=safeDecode(params.moduleName||'Selling')
+  const doctype=safeDecode(params.doctype||'Customer')
   const navigate=useNavigate()
   const [page,setPage]=useState(1)
   const [search,setSearch]=useState('')
@@ -49,3 +51,4 @@ export function ModuleDoctypeListPage(){
 
 function formatValue(value:unknown){if(value===null||value===undefined||value==='')return '—';if(typeof value==='number')return new Intl.NumberFormat('en-IN').format(value);return String(value)}
 function toRecordDetailPart(detail:DocumentDetailResponse):RecordDetailPart{return{type:'record_detail',doctype:detail.doctype,name:detail.name,title:detail.title,status:detail.status,workflow_state:detail.workflowState,docstatus:detail.docstatus,summary:detail.summary,fields:detail.fields,items:detail.items,available_workflow_actions:detail.availableWorkflowActions}}
+function safeDecode(value:string){try{return decodeURIComponent(value)}catch{return value}}

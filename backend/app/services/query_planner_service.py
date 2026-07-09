@@ -85,7 +85,7 @@ class QueryPlannerService:
                 extraction_method="vertex_gemini",
             )
 
-        fallback = self._fallback_plan(message, current_date)
+        fallback = self._fallback_plan(_apply_module_context(message, module_context), current_date)
         plan = self._merge(llm_plan, fallback, message)
         plan = validate_query_plan(plan)
         aggregation = build_rule_based_aggregation_plan(message, plan)
@@ -258,3 +258,26 @@ def _date_from_iso(value: str | None) -> date | None:
 
 def _hashish(value: str) -> str:
     return f"message_len={len(value)}"
+
+
+def _apply_module_context(message: str, module_context: str | None) -> str:
+    if not module_context:
+        return message
+    context = module_context.strip().lower()
+    rewrites = {
+        "selling": [(r"\binvoices?\b", "sales invoices"), (r"\borders?\b", "sales orders"), (r"\bparties\b", "customers")],
+        "buying": [(r"\binvoices?\b", "purchase invoices"), (r"\borders?\b", "purchase orders"), (r"\bparties\b", "suppliers"), (r"\breceipts?\b", "purchase receipts"), (r"\bquotations?\b", "supplier quotations")],
+        "stock": [(r"\bentries\b", "stock entries"), (r"\bwarehouses?\b", "warehouses"), (r"\bbalance\b", "stock balance"), (r"\bmovement\b", "stock ledger"), (r"\brequests?\b", "material requests")],
+        "accounts": [(r"\breceivables?\b", "accounts receivable"), (r"\bpayables?\b", "accounts payable"), (r"\bledger\b", "general ledger"), (r"\bpayments?\b", "payment entries"), (r"\bjournal\b", "journal entries")],
+        "crm": [(r"\bleads?\b", "leads"), (r"\bopportunities\b", "opportunities"), (r"\bpipeline\b", "opportunities")],
+        "projects": [(r"\bprojects?\b", "projects"), (r"\btasks?\b", "tasks"), (r"\btimesheets?\b", "timesheets")],
+        "support": [(r"\btickets?\b", "issues"), (r"\bissues?\b", "issues"), (r"\bsla\b", "service level agreement")],
+        "hr": [(r"\bemployees?\b", "employees"), (r"\battendance\b", "attendance"), (r"\bleave\b", "leave applications"), (r"\bsalary\b", "salary slips"), (r"\bexpense\b", "expense claims")],
+        "assets": [(r"\bassets?\b", "assets"), (r"\bmovement\b", "asset movement"), (r"\bmaintenance\b", "asset maintenance"), (r"\brepair\b", "asset repair")],
+        "manufacturing": [(r"\bwork orders?\b", "work orders"), (r"\bbom\b", "BOM"), (r"\bproduction plans?\b", "production plans"), (r"\bjob cards?\b", "job cards")],
+    }
+    key = {"accounting": "accounts", "purchase": "buying", "inventory": "stock", "helpdesk": "support"}.get(context, context)
+    output = message
+    for pattern, replacement in rewrites.get(key, []):
+        output = re.sub(pattern, replacement, output, flags=re.IGNORECASE)
+    return output

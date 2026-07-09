@@ -1,10 +1,10 @@
-import { BadgeIndianRupee, Boxes, BriefcaseBusiness, Factory, Handshake, PackageCheck, ShoppingCart, UsersRound, type LucideIcon } from 'lucide-react'
+import { BadgeIndianRupee, Boxes, BriefcaseBusiness, Factory, Handshake, Headphones, IdCard, Kanban, Landmark, PackageCheck, ShoppingCart, UsersRound, Warehouse, type LucideIcon } from 'lucide-react'
 import { env } from '../config/env'
 import type { Module, ModuleDashboard, ModuleDetailResponse, ModuleDoctypeNavigation, ModuleDoctypeRecords, ModuleListResponse, ModuleRecordsResponse, ModuleReportsResponse } from '../types/module'
 import { apiClient } from './apiClient'
 import { mockModuleService } from './mock/mockModuleService'
 type ModuleDto=Omit<Module,'icon'>;type DetailDto=Omit<ModuleDetailResponse,'module'>&{module:ModuleDto}
-const icons:Record<string,LucideIcon>={accounting:BadgeIndianRupee,accounts:BadgeIndianRupee,selling:ShoppingCart,buying:PackageCheck,stock:Boxes,crm:Handshake,projects:BriefcaseBusiness,hr:UsersRound,manufacturing:Factory}
+const icons:Record<string,LucideIcon>={accounting:BadgeIndianRupee,accounts:Landmark,selling:ShoppingCart,buying:PackageCheck,stock:Warehouse,crm:UsersRound,projects:Kanban,support:Headphones,hr:IdCard,assets:Boxes,manufacturing:Factory,project:BriefcaseBusiness,helpdesk:Headphones}
 const hydrate=(module:ModuleDto):Module=>({...module,icon:icons[module.slug]||Boxes})
 export async function getModules():Promise<ModuleListResponse>{if(env.useMockApi)return mockModuleService.getModules();return(await apiClient.get<ModuleDto[]>('/api/modules')).map(hydrate)}
 export async function getModule(name:string):Promise<ModuleDetailResponse>{if(env.useMockApi)return mockModuleService.getModule(name);const result=await apiClient.get<DetailDto>(`/api/modules/${encodeURIComponent(name)}`);return{...result,module:hydrate(result.module)}}

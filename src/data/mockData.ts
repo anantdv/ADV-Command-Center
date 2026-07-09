@@ -1,6 +1,6 @@
 import {
   BadgeIndianRupee, Boxes, BriefcaseBusiness, Building2, Factory, Handshake,
-  PackageCheck, ReceiptIndianRupee, ShoppingCart, UsersRound,
+  Headphones, IdCard, Landmark, PackageCheck, ReceiptIndianRupee, ShoppingCart, UsersRound,
 } from 'lucide-react'
 import type { Course, FileItem, Module, Ticket } from '../types'
 
@@ -32,13 +32,15 @@ export const aging = [
 ]
 
 export const modules: Module[] = [
-  { slug: 'accounting', name: 'Accounting', description: 'Ledgers, receivables, payables and financial reporting.', metric: '₹12.4L', metricLabel: 'Net profit', icon: BadgeIndianRupee, color: 'indigo' },
+  { slug: 'accounts', name: 'Accounts', description: 'Ledgers, receivables, payables and financial reporting.', metric: '8', metricLabel: 'Configured DocTypes', icon: Landmark, color: 'indigo' },
   { slug: 'selling', name: 'Selling', description: 'Customers, quotations, sales orders and invoicing.', metric: '₹42.3L', metricLabel: 'Sales this month', icon: ShoppingCart, color: 'blue' },
   { slug: 'buying', name: 'Buying', description: 'Suppliers, purchase orders and procurement cycles.', metric: '84', metricLabel: 'Open orders', icon: PackageCheck, color: 'amber' },
   { slug: 'stock', name: 'Stock', description: 'Items, warehouses, ledgers and reorder intelligence.', metric: '₹24.1L', metricLabel: 'Stock value', icon: Boxes, color: 'emerald' },
   { slug: 'crm', name: 'CRM', description: 'Leads, opportunities and relationship management.', metric: '126', metricLabel: 'Active leads', icon: Handshake, color: 'violet' },
   { slug: 'projects', name: 'Projects', description: 'Project delivery, tasks, timesheets and billing.', metric: '18', metricLabel: 'Active projects', icon: BriefcaseBusiness, color: 'cyan' },
-  { slug: 'hr', name: 'HR', description: 'Employees, attendance, payroll and performance.', metric: '248', metricLabel: 'Employees', icon: UsersRound, color: 'rose' },
+  { slug: 'support', name: 'Support', description: 'Issues, SLAs and customer support operations.', metric: '6', metricLabel: 'Configured DocTypes', icon: Headphones, color: 'sky' },
+  { slug: 'hr', name: 'HR', description: 'Employees, attendance, payroll and performance.', metric: '248', metricLabel: 'Employees', icon: IdCard, color: 'rose' },
+  { slug: 'assets', name: 'Assets', description: 'Asset records, movement, maintenance and repair.', metric: '6', metricLabel: 'Configured DocTypes', icon: Boxes, color: 'slate' },
   { slug: 'manufacturing', name: 'Manufacturing', description: 'BOMs, work orders and production planning.', metric: '31', metricLabel: 'Open work orders', icon: Factory, color: 'orange' },
 ]
 

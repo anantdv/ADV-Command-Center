@@ -1,80 +1,24 @@
 MODULE_REGISTRY = {
-    "Selling": {
-        "label": "Selling",
-        "route": "/modules/selling",
-        "icon": "shopping-cart",
-        "description": "Customers, quotations, sales orders, invoices, and sales analytics.",
-        "category": "Revenue",
-        "doctypes": ["Customer", "Lead", "Opportunity", "Quotation", "Sales Order", "Sales Invoice", "Delivery Note", "Item"],
-        "reports": ["Sales Analytics", "Sales Register", "Item-wise Sales Register", "Customer-wise Sales Register", "Sales Order Trends"],
-    },
-    "Buying": {
-        "label": "Buying",
-        "route": "/modules/buying",
-        "icon": "package-check",
-        "description": "Suppliers, purchase orders, purchase invoices, and procurement analytics.",
-        "category": "Procurement",
-        "doctypes": ["Supplier", "Request for Quotation", "Supplier Quotation", "Purchase Order", "Purchase Invoice", "Purchase Receipt", "Material Request", "Item"],
-        "reports": ["Purchase Analytics", "Purchase Register", "Item-wise Purchase Register", "Supplier-wise Sales Analytics"],
-    },
-    "Stock": {
-        "label": "Stock",
-        "route": "/modules/stock",
-        "icon": "warehouse",
-        "description": "Items, warehouses, stock balance, movement, and inventory analytics.",
-        "category": "Inventory",
-        "doctypes": ["Item", "Warehouse", "Stock Entry", "Stock Reconciliation", "Delivery Note", "Purchase Receipt"],
-        "reports": ["Stock Balance", "Stock Ledger", "Stock Projected Qty", "Item Price Stock"],
-    },
-    "Accounts": {
-        "label": "Accounts",
-        "route": "/modules/accounts",
-        "icon": "landmark",
-        "description": "Invoices, payments, journal entries, receivables, payables, and ledger reports.",
-        "category": "Finance",
-        "doctypes": ["Sales Invoice", "Purchase Invoice", "Payment Entry", "Journal Entry", "GL Entry", "Account"],
-        "reports": ["General Ledger", "Accounts Receivable", "Accounts Payable", "Trial Balance", "Balance Sheet", "Profit and Loss Statement"],
-    },
-    "CRM": {
-        "label": "CRM",
-        "route": "/modules/crm",
-        "icon": "handshake",
-        "description": "Leads, opportunities, campaigns, and customer relationship workflows.",
-        "category": "Revenue",
-        "doctypes": ["Lead", "Opportunity", "Customer", "Contact"],
-        "reports": [],
-    },
-    "Projects": {
-        "label": "Projects",
-        "route": "/modules/projects",
-        "icon": "briefcase-business",
-        "description": "Projects, tasks, time tracking, and delivery status.",
-        "category": "Operations",
-        "doctypes": ["Project", "Task", "Timesheet"],
-        "reports": [],
-    },
-    "HR": {
-        "label": "HR",
-        "route": "/modules/hr",
-        "icon": "users-round",
-        "description": "Employee records, leave, attendance, and HR workflows.",
-        "category": "People",
-        "doctypes": ["Employee", "Leave Application", "Attendance"],
-        "reports": [],
-    },
-    "Manufacturing": {
-        "label": "Manufacturing",
-        "route": "/modules/manufacturing",
-        "icon": "factory",
-        "description": "Work orders, BOMs, production plans, and shop-floor operations.",
-        "category": "Operations",
-        "doctypes": ["Work Order", "BOM", "Production Plan", "Job Card"],
-        "reports": [],
-    },
+    "Selling": {"label": "Selling", "route": "/modules/selling", "icon": "shopping-cart", "description": "Customers, quotations, sales orders, invoices, and sales analytics.", "category": "Revenue", "doctypes": ["Customer", "Lead", "Opportunity", "Quotation", "Sales Order", "Sales Invoice", "Delivery Note", "Item"], "reports": ["Sales Analytics", "Sales Register", "Item-wise Sales Register", "Customer-wise Sales Register", "Sales Order Trends"]},
+    "Buying": {"label": "Buying", "route": "/modules/buying", "icon": "package-check", "description": "Suppliers, purchase orders, purchase invoices, receipts, and procurement analytics.", "category": "Procurement", "doctypes": ["Supplier", "Material Request", "Request for Quotation", "Supplier Quotation", "Purchase Order", "Purchase Receipt", "Purchase Invoice", "Item"], "reports": ["Purchase Analytics", "Purchase Register", "Item-wise Purchase Register", "Supplier-wise Purchase Register", "Requested Items To Be Ordered"]},
+    "Stock": {"label": "Stock", "route": "/modules/stock", "icon": "warehouse", "description": "Items, warehouses, stock balance, stock movement, and inventory operations.", "category": "Inventory", "doctypes": ["Item", "Warehouse", "Stock Entry", "Stock Reconciliation", "Stock Ledger Entry", "Delivery Note", "Purchase Receipt", "Material Request", "Batch", "Serial No"], "reports": ["Stock Balance", "Stock Ledger", "Stock Projected Qty", "Stock Ageing", "Item Price Stock"]},
+    "Accounts": {"label": "Accounts", "route": "/modules/accounts", "icon": "landmark", "description": "Receivables, payables, ledger, invoices, payments, and financial reporting.", "category": "Finance", "doctypes": ["Sales Invoice", "Purchase Invoice", "Payment Entry", "Journal Entry", "GL Entry", "Account", "Cost Center", "Mode of Payment"], "reports": ["General Ledger", "Accounts Receivable", "Accounts Payable", "Trial Balance", "Balance Sheet", "Profit and Loss Statement", "Cash Flow"]},
+    "CRM": {"label": "CRM", "route": "/modules/crm", "icon": "users-round", "description": "Leads, opportunities, customers, campaigns, and sales pipeline.", "category": "Revenue", "doctypes": ["Lead", "Opportunity", "Customer", "Contact", "Address", "Communication", "CRM Note"], "reports": ["Lead Details", "Opportunity Summary", "Sales Pipeline Analytics"]},
+    "Projects": {"label": "Projects", "route": "/modules/projects", "icon": "kanban", "description": "Projects, tasks, milestones, timesheets, and project performance.", "category": "Operations", "doctypes": ["Project", "Task", "Timesheet", "Project Template", "Activity Type"], "reports": ["Project Summary", "Task Summary", "Timesheet Billing Summary"]},
+    "Support": {"label": "Support", "route": "/modules/support", "icon": "life-buoy", "description": "Issues, service levels, support tickets, and customer service operations.", "category": "Service", "doctypes": ["Issue", "Issue Type", "Customer", "Contact", "Communication", "Service Level Agreement"], "reports": ["Issue Summary", "Support Analytics"]},
+    "HR": {"label": "HR", "route": "/modules/hr", "icon": "id-card", "description": "Employees, attendance, leave, payroll, and HR operations.", "category": "People", "doctypes": ["Employee", "Attendance", "Leave Application", "Leave Type", "Salary Slip", "Payroll Entry", "Expense Claim", "Department", "Designation"], "reports": ["Employee Information", "Monthly Attendance Sheet", "Salary Register", "Leave Ledger"]},
+    "Assets": {"label": "Assets", "route": "/modules/assets", "icon": "boxes", "description": "Asset records, depreciation, maintenance, and asset movement.", "category": "Operations", "doctypes": ["Asset", "Asset Category", "Asset Movement", "Asset Maintenance", "Asset Repair", "Location"], "reports": ["Asset Depreciation Ledger", "Fixed Asset Register"]},
+    "Manufacturing": {"label": "Manufacturing", "route": "/modules/manufacturing", "icon": "factory", "description": "BOMs, work orders, production plans, job cards, and manufacturing analytics.", "category": "Operations", "doctypes": ["BOM", "Work Order", "Production Plan", "Job Card", "Operation", "Workstation", "Item"], "reports": ["BOM Stock Report", "Work Order Summary", "Production Planning Report"]},
 }
 
 
 def normalize_module_name(value: str) -> str:
     text = (value or "").strip().replace("-", " ").replace("_", " ").lower()
-    aliases = {"accounting": "Accounts", "accounts": "Accounts", "selling": "Selling", "buying": "Buying", "stock": "Stock", "crm": "CRM", "projects": "Projects", "hr": "HR", "manufacturing": "Manufacturing"}
+    aliases = {
+        "accounting": "Accounts", "accounts": "Accounts", "finance": "Accounts",
+        "selling": "Selling", "sales": "Selling", "buying": "Buying", "purchase": "Buying", "purchasing": "Buying",
+        "stock": "Stock", "inventory": "Stock", "crm": "CRM", "projects": "Projects", "project": "Projects",
+        "support": "Support", "helpdesk": "Support", "hr": "HR", "human resources": "HR", "assets": "Assets", "asset": "Assets",
+        "manufacturing": "Manufacturing", "manufacture": "Manufacturing", "production": "Manufacturing",
+    }
     return aliases.get(text, " ".join(part.capitalize() for part in text.split()))

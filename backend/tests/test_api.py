@@ -34,8 +34,8 @@ def test_chat_overdue_invoice_message(client):
 
 def test_modules(client):
     data = assert_success(client.get("/api/modules"))
-    assert len(data) == 8
-    assert data[0]["name"] == "Accounting"
+    names = {item["name"] for item in data}
+    assert {"Accounts", "Selling", "Buying", "Stock", "CRM", "Projects", "Support", "HR", "Assets", "Manufacturing"}.issubset(names)
 
 
 def test_library_files(client):

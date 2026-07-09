@@ -15,7 +15,7 @@ const nav: Item[] = [
   { label: 'Overview', path: '/overview', icon: LayoutDashboard },
   { label: 'Command Center', path: '/command-center', icon: Sparkles },
   { label: 'Communications', path: '/communications', icon: Mail },
-  { label: 'Modules', path: '/modules', icon: Boxes, children: ['Accounting','Selling','Buying','Stock','CRM','Projects','HR','Manufacturing'].map(x => ({ label: x, path: `/modules/${x.toLowerCase()}` })) },
+  { label: 'Modules', path: '/modules', icon: Boxes, children: ['Accounts','Selling','Buying','Stock','CRM','Projects','Support','HR','Assets','Manufacturing'].map(x => ({ label: x, path: `/modules/${x.toLowerCase()}` })) },
   { label: 'Library', path: '/library', icon: Library, children: [{label:'Spreadsheets',path:'/library/spreadsheets'},{label:'PDF Reports',path:'/library/pdf'},{label:'Charts',path:'/library/charts'},{label:'Dashboards',path:'/library/dashboards'}] },
   { label: 'Training', path: '/training', icon: GraduationCap, children: [{label:'Courses',path:'/training/courses'},{label:'Assessments',path:'/training/assessments'},{label:'Leaderboard',path:'/training/leaderboard'}] },
   { label: 'Support', path: '/support', icon: Headphones, children: [{label:'AI Help',path:'/support/ai-help'},{label:'Tickets',path:'/support/tickets'}] },
