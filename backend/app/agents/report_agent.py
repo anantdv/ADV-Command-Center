@@ -1,4 +1,5 @@
 from app.agents.router_agent import IntentResult
+from app.core.exceptions import AppError
 from app.schemas.chat import AssistantChatResponse, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart
 from app.tools.report_tools import ReportReadTools
 from app.utils.chart_builder import try_build_chart
@@ -14,7 +15,26 @@ class ReportAgent:
     async def handle(self, intent: IntentResult, cookies: dict | None = None) -> AssistantChatResponse:
         if not intent.report_name:
             raise ValueError("ReportAgent requires an approved report name")
-        result = await self.tools.run_report(intent.report_name, intent.filters, cookies)
+        try:
+            result = await self.tools.run_report(intent.report_name, intent.filters, cookies)
+        except AppError as exc:
+            message = _friendly_report_error(intent.report_name, exc)
+            message_id = new_id("msg")
+            return AssistantChatResponse(
+                conversation_id=intent.conversation_id or new_id("conv"),
+                message_id=message_id,
+                intent="run_report",
+                parts=[
+                    TextPart(content=message),
+                    ToolCallPart(tool_name="run_report", status="error", input_summary=intent.report_name, output_summary=exc.message),
+                ],
+                source=SourceMeta(source_type="report", source_name=intent.report_name, filters=intent.filters or {}, report_name=intent.report_name),
+                permission=PermissionMeta(allowed=False, reason=exc.message),
+                suggested_actions=[SuggestedAction(label="Refine Filters", action_type="refine_filters")],
+                id=message_id,
+                content=message,
+                created_at=utc_now(),
+            )
         count = result["record_count"]
         summary = f"I ran {intent.report_name} and found {count} row{'s' if count != 1 else ''} you have permission to view."
         rows = result["rows"]
@@ -49,3 +69,10 @@ class ReportAgent:
             content=summary,
             created_at=utc_now(),
         )
+
+
+def _friendly_report_error(report_name: str, exc: AppError) -> str:
+    lowered = f"{exc.message} {exc.details}".lower()
+    if report_name == "Stock Balance" and "company" in lowered:
+        return "I can run the Stock Balance report, but I need a Company filter first."
+    return f"I understood this as {report_name}, but ERPNext could not run the report. {exc.message}"

@@ -11,6 +11,8 @@ from app.utils.date_range_parser import parse_date_range_phrase
 from app.utils.workflow_intent_parser import parse_workflow_intent
 from app.utils.detail_intent_parser import parse_detail_intent
 from app.config import settings
+from app.schemas.command_intent import CommandIntent
+from app.services.command_router_service import command_router_service
 from app.llm.extraction_service import LLMExtractionService
 from app.llm.schemas import ExtractedIntent
 from app.core.audit import AuditEvent, log_audit_event
@@ -86,10 +88,11 @@ RECORD_ID_PATTERN = re.compile(
 class IntentResult(BaseModel):
     intent: Literal[
         "list_records", "get_record", "run_report", "summary_query", "chart_query",
-        "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "report_composer", "blocked_write", "unsupported", "write_blocked",
+        "run_analytics", "generate_chart", "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "report_composer", "blocked_write", "unsupported", "write_blocked",
     ]
     doctype: str | None = None
     report_name: str | None = None
+    analytics_key: str | None = None
     record_name: str | None = None
     filters: dict[str, Any] | None = None
     fields: list[str] | None = None
@@ -129,17 +132,13 @@ class RouterAgent:
 
     async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None, date_range_context: dict[str, str] | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
-        workflow = parse_workflow_intent(message)
-        if workflow:
-            data = {"action": workflow.get("action")} if workflow.get("action") else None
-            if module_context and module_context.lower() == "selling" and workflow["intent"] == "workflow_list_pending" and not workflow.get("doctype"):
-                data = {"doctypes": ["Quotation", "Sales Order", "Sales Invoice", "Delivery Note"]}
-            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data=data, confidence=0.96, raw_prompt=message, date_range=date_range_context)
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message, date_range=date_range_context)
-        detail = parse_detail_intent(message)
-        if detail.matched:
-            return IntentResult(intent="get_record", doctype=detail.doctype, record_name=detail.name, confidence=detail.confidence, raw_prompt=message, missing_info_hint="I found the document number, but I need the document type to open it." if detail.needs_doctype else None, date_range=date_range_context)
+
+        command_intent = await command_router_service.route(message, module_context, date_range_context)
+        if command_intent.intent != "unsupported":
+            return self._from_command_intent(command_intent)
+
         if settings.enable_report_composer and ReportComposerPlanner.looks_like_report_prompt(message):
             plan = await ReportComposerPlanner().plan_from_message(message, module_context)
             return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan, date_range=plan.date_range or date_range_context)
@@ -171,6 +170,45 @@ class RouterAgent:
         if date_range_context and not intent.date_range and not parse_date_range_phrase(message):
             intent.date_range = date_range_context
         return intent
+
+    @staticmethod
+    def _from_command_intent(command: CommandIntent) -> IntentResult:
+        mapped_intent = {
+            "get_record_detail": "get_record",
+            "crud_create_draft": "crud_create",
+            "crud_update_draft": "crud_update",
+        }.get(command.intent, command.intent)
+        data = dict(command.action_payload or {})
+        if command.module_context and command.module_context.lower() == "selling" and command.intent == "workflow_list_pending" and not command.doctype:
+            data.setdefault("doctypes", ["Quotation", "Sales Order", "Sales Invoice", "Delivery Note"])
+        widget_type = None
+        if command.chart_requested:
+            widget_type = {
+                "line": "line_chart",
+                "bar": "bar_chart",
+                "pie": "pie_chart",
+                "donut": "donut_chart",
+                "area": "area_chart",
+            }.get(str(command.chart_type or "").lower())
+        return IntentResult(
+            intent=mapped_intent,  # type: ignore[arg-type]
+            doctype=command.doctype,
+            report_name=command.report_name,
+            analytics_key=command.analytics_key,
+            record_name=command.record_name,
+            filters=command.filters,
+            fields=command.fields or None,
+            limit=50 if mapped_intent in {"run_analytics", "generate_chart"} else 20,
+            confidence=command.confidence,
+            raw_prompt=command.message,
+            date_range=command.date_range,
+            operation="create" if command.intent == "crud_create_draft" else "update" if command.intent == "crud_update_draft" else None,
+            data=data or None,
+            missing_info_hint=", ".join(command.missing_information) if command.missing_information else None,
+            chart_config={"chart_type": command.chart_type} if command.chart_requested else None,
+            widget_type=widget_type,
+            extraction_method="rules",
+        )
 
     @staticmethod
     async def _audit_routing(action: str, extracted: ExtractedIntent, user: str, conversation_id: str | None, fallback: bool = False) -> None:
@@ -369,7 +407,7 @@ class RouterAgent:
             if "overdue" in text:
                 return {"status": "Overdue"}
             if "unpaid" in text:
-                return {"status": "unpaid"}
+                return {"status": ["in", ["Unpaid", "Overdue"]]}
             if "paid" in text:
                 return {"outstanding_amount": ["=", 0]}
             if "draft" in text:

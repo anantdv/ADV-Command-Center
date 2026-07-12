@@ -18,6 +18,7 @@ from app.utils.chart_plan_builder import build_chart_from_aggregation
 from app.schemas.report_composer import ReportComposerPlanRequest
 from app.services.report_composer_service import report_composer_service
 from app.utils.report_filter_builder import build_normalized_filters_from_plan
+from app.services.command_router_service import command_router_service
 
 router=APIRouter(prefix="/debug",tags=["Development"])
 
@@ -37,6 +38,12 @@ class NormalizeFiltersRequest(BaseModel):
 class QueryPlanDebugRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     module_context: str | None = None
+
+
+class CommandRouteDebugRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    module_context: str | None = None
+    date_range: dict[str, Any] | None = None
 
 
 @router.post("/extract-intent", response_model=ApiResponse[dict])
@@ -94,6 +101,30 @@ async def query_plan_debug(payload: QueryPlanDebugRequest, _: CurrentUserDep) ->
         "query_plan": plan.model_dump(mode="json"),
         "extraction_method": plan.extraction_method,
         "privacy_checked": plan.extraction_method != "rules",
+    })
+
+
+@router.post("/command-route", response_model=ApiResponse[dict])
+async def command_route_debug(payload: CommandRouteDebugRequest, _: CurrentUserDep) -> ApiResponse[dict]:
+    if settings.app_env != "development": raise AppError("Not found.",404)
+    intent = await command_router_service.route(payload.message, payload.module_context, payload.date_range)
+    target = {
+        "run_report": "ReportAgent",
+        "run_analytics": "AnalyticsAgent",
+        "generate_chart": "AnalyticsAgent",
+        "workflow_list_pending": "WorkflowAgent",
+        "workflow_get_detail": "WorkflowAgent",
+        "workflow_apply_action": "WorkflowAgent",
+        "get_record_detail": "ERPDataAgent",
+        "list_records": "ERPDataAgent",
+        "unsupported": "Fallback",
+    }.get(intent.intent, "CommandRouter")
+    return ApiResponse(data={
+        "message": payload.message,
+        "intent": intent.model_dump(mode="json"),
+        "explicit_context_reference": intent.explicit_context_reference,
+        "previous_context_used": intent.uses_previous_result,
+        "route_target": target,
     })
 
 

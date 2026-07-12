@@ -13,8 +13,10 @@ import { DocumentMappingPreview } from '../components/document-intake/DocumentMa
 import { DocumentUploadPanel } from '../components/document-intake/DocumentUploadPanel'
 import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
+import { usePinChatResultToDashboard } from '../hooks/api/useDashboard'
 import { useAppStore } from '../store/useAppStore'
 import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
+import type { DashboardWidgetSource } from '../types/dashboard'
 import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
 
@@ -36,6 +38,7 @@ export function CommandCenterPage() {
   const autoRun=searchParams.get('autoRun')==='true'
   const conversations = useConversations()
   const sendMessage = useSendChatMessage()
+  const pinSuggestion=usePinChatResultToDashboard()
   const dateRange = useAppStore(state=>state.dateRange)
   const [selectedId,setSelectedId] = useState<string>()
   const [newChat,setNewChat] = useState(false)
@@ -76,6 +79,18 @@ export function CommandCenterPage() {
     if(action.disabled)return
     if(action.action_type==='download_file'&&action.reason){window.location.assign(action.reason);return}
     if(action.action_type==='open_library'){navigate('/library');return}
+    if(action.action_type==='open_module'){
+      const moduleSlug=moduleForSource(source)
+      if(moduleSlug){navigate(`/modules/${moduleSlug}`);return}
+    }
+    if(action.action_type==='view_related'){
+      send(`show related records for ${source?.doctype||source?.source_name||'this result'}`)
+      return
+    }
+    if(action.action_type==='refine_filters'){
+      send(`refine filters for ${source?.source_name||'this result'}`)
+      return
+    }
     const format:Record<string,string>={generate_pdf:'pdf',export_excel:'excel',export_csv:'csv'}
     if(format[action.action_type]){
       const overdue=source?.filters&&source.filters.status==='Overdue'?'overdue ':''
@@ -93,10 +108,17 @@ export function CommandCenterPage() {
       return
     }
     if(suggestion.type==='pin'){
-      send(`pin ${source?.source_name||'this result'} to overview`)
+      const conversationId=String(payload.conversation_id||payload.conversationId||'')
+      const messageId=String(payload.message_id||payload.messageId||'')
+      if(conversationId&&messageId&&source){
+        const dashboardSource:DashboardWidgetSource={source_type:source.source_type==='tool'?'chat_result':source.source_type,source_name:source.source_name,doctype:source.doctype||(source.source_type==='doctype'?source.source_name:null),report_name:source.report_name||(source.source_type==='report'?source.source_name:null),filters:source.filters,fields:source.fields}
+        pinSuggestion.mutate({conversation_id:conversationId,message_id:messageId,title:source.source_name,widget_type:'table',source:dashboardSource,target_type:'overview'})
+      }
       return
     }
     if(suggestion.type==='navigation'){
+      const route=payload.route
+      if(typeof route==='string'){navigate(route);return}
       if(actionType==='open_library'){navigate('/library');return}
       const downloadUrl=payload.download_url||payload.downloadUrl
       if(typeof downloadUrl==='string'){window.location.assign(downloadUrl);return}
@@ -152,6 +174,17 @@ export function CommandCenterPage() {
     </section>
     {showIntake&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-slate-900">OCR Document Intake</h2><p className="text-xs text-slate-400">Upload supplier invoices, customer POs, quotations, or delivery documents.</p></div><button className="rounded-lg p-2 hover:bg-slate-100" onClick={()=>{setShowIntake(false);setIntakePreview(null)}}><X size={18}/></button></div>{intakePreview?<DocumentMappingPreview preview={intakePreview} busy={confirmIntake.isPending} onConfirm={()=>confirmIntake.mutate(intakePreview.intake_id)} onCancel={()=>setIntakePreview(null)}/>:<DocumentUploadPanel onProcessed={setIntakePreview}/>}</div></div>}
   </div>
+}
+
+function moduleForSource(source?:SourceMeta|null){
+  const name=source?.doctype||source?.source_name||''
+  if(/Stock|Item|Warehouse/i.test(name))return 'stock'
+  if(/Purchase|Supplier|Buying/i.test(name))return 'buying'
+  if(/Sales|Customer|Quotation|Lead|Opportunity/i.test(name))return 'selling'
+  if(/Receivable|Payable|Ledger|Trial|Account/i.test(name))return 'accounting'
+  if(/Project|Task/i.test(name))return 'projects'
+  if(/Issue|Support/i.test(name))return 'support'
+  return null
 }
 
 function EmptyCommandCenter({onPrompt}:{onPrompt:(prompt:string)=>void}){

@@ -1,5 +1,6 @@
 from app.agents.erp_data_agent import ERPDataAgent
 from app.agents.aggregation_agent import AggregationAgent
+from app.agents.analytics_agent import AnalyticsAgent
 from app.agents.workflow_agent import WorkflowAgent
 from app.agents.file_generation_agent import FileGenerationAgent
 from app.agents.crud_agent import CrudAgent
@@ -53,6 +54,7 @@ class ChatService:
         dashboards: DashboardService | None = None,
         crud_agent: CrudAgent | None = None,
         aggregation_agent: AggregationAgent | None = None,
+        analytics_agent: AnalyticsAgent | None = None,
         workflow_agent: WorkflowAgent | None = None,
         report_composer_agent: ReportComposerAgent | None = None,
         suggestions: SuggestionService | None = None,
@@ -66,6 +68,7 @@ class ChatService:
         self.dashboards = dashboards or dashboard_service
         self.crud_agent = crud_agent or CrudAgent()
         self.aggregation_agent = aggregation_agent or AggregationAgent()
+        self.analytics_agent = analytics_agent or AnalyticsAgent()
         self.workflow_agent = workflow_agent or WorkflowAgent()
         self.report_composer_agent = report_composer_agent or ReportComposerAgent()
         self.suggestions = suggestions or suggestion_service
@@ -113,6 +116,8 @@ class ChatService:
             response = await self.workflow_agent.handle(intent, cookies, user)
         elif intent.intent == "run_report":
             response = await self.report_agent.handle(intent, cookies)
+        elif intent.intent in {"run_analytics", "generate_chart"}:
+            response = await self.analytics_agent.handle(intent, cookies, user)
         elif intent.intent == "generate_file":
             response = await self.file_agent.handle(intent, cookies, user)
         elif intent.intent in {"crud_create", "crud_update"}:

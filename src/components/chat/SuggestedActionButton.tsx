@@ -16,8 +16,9 @@ const icons:Record<string,typeof Sparkles>={
 export function SuggestedActionButton({suggestion,busy,onClick}:{suggestion:SuggestedPrompt;busy?:boolean;onClick:(suggestion:SuggestedPrompt)=>void}){
   const actionType=suggestion.actionType||suggestion.action_type||suggestion.type
   const Icon=busy?Loader2:(icons[actionType]||icons[suggestion.type]||Sparkles)
-  const disabled=Boolean(suggestion.disabled||busy)
-  const reason=suggestion.disabledReason||suggestion.disabled_reason||suggestion.label
+  const missingReason=missingPayloadReason(suggestion)
+  const disabled=Boolean(suggestion.disabled||busy||missingReason)
+  const reason=suggestion.disabledReason||suggestion.disabled_reason||missingReason||suggestion.label
   const risk=suggestion.risk||'low'
   const style=risk==='high'?'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100':risk==='medium'?'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100':'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700'
   return <button type="button" disabled={disabled} title={reason||suggestion.label} onClick={()=>onClick(suggestion)} className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-bold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-45 ${style}`}>
@@ -25,4 +26,20 @@ export function SuggestedActionButton({suggestion,busy,onClick}:{suggestion:Sugg
     {risk==='high'&&<TriangleAlert size={12}/>}
     <span>{suggestion.label}</span>
   </button>
+}
+
+function missingPayloadReason(suggestion: SuggestedPrompt) {
+  const payload=suggestion.payload||{}
+  if(suggestion.type==='prompt'&&!suggestion.prompt)return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='navigation'){
+    const actionType=suggestion.actionType||suggestion.action_type
+    if(actionType==='open_library')return null
+    if(typeof payload.route==='string'||typeof payload.download_url==='string'||typeof payload.downloadUrl==='string')return null
+    return 'This action is unavailable because required context is missing.'
+  }
+  if(suggestion.type==='export'&&(!payload.format||!payload.message_id&&!payload.messageId))return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='pin'&&(!payload.message_id&&!payload.messageId))return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='workflow_action'&&(!payload.doctype||!payload.name||!payload.action))return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='crud_confirmation'&&(!payload.confirmation_id&&!payload.confirmationId))return 'This action is unavailable because required context is missing.'
+  return null
 }
