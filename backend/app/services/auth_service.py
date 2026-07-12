@@ -31,6 +31,7 @@ class AuthService:
                 result=LoginResult(
                     user=request.username,
                     full_name=MOCK_USER["full_name"],
+                    first_name=str(MOCK_USER["full_name"]).split()[0],
                     email=request.username,
                     roles=MOCK_USER["roles"],
                     message="Mock session active",
@@ -72,6 +73,7 @@ class AuthService:
             result=LoginResult(
                 user=user,
                 full_name=str(payload.get("full_name") or user),
+                first_name=str(payload.get("full_name") or user).split()[0],
                 email=user if "@" in user else None,
                 message=str(payload.get("message") or "Logged in"),
             ),

@@ -14,7 +14,7 @@ from app.utils.filter_normalizer import normalize_filters
 
 
 class WidgetDataBuilder:
-    """Rebuilds widget data from permission-aware ERP sources on every refresh."""
+    """Rebuilds widget data from ERP sources on every refresh."""
 
     def __init__(self, client: FrappeClient | None = None):
         self.client = client or FrappeClient(settings.frappe_base_url, settings.frappe_auth_mode, settings.frappe_api_key, settings.frappe_api_secret, settings.frappe_session_cookie_name)
@@ -59,7 +59,7 @@ class WidgetDataBuilder:
             elif aggregate == "min": value = min(numbers) if numbers else 0
             elif aggregate == "max": value = max(numbers) if numbers else 0
             else: value = len(rows)
-            return {"value": value, "label": title, "trend": None, "format": "currency" if aggregate_field and any(term in aggregate_field for term in ("amount", "total")) else "number", "subtitle": "Permission-aware ERPNext data"}, chart_config
+            return {"value": value, "label": title, "trend": None, "format": "currency" if aggregate_field and any(term in aggregate_field for term in ("amount", "total")) else "number", "subtitle": "ERPNext data"}, chart_config
         if widget_type == "table":
             table = build_table_part(title, rows, 20)
             return {"columns": [column.model_dump() for column in table.columns], "rows": table.rows, "total_rows": len(rows)}, chart_config

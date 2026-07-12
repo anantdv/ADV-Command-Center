@@ -30,7 +30,7 @@ export function ModuleDoctypeListPage(){
     <header className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <p className="eyebrow">{moduleName} list view</p>
       <div className="mt-2 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div><h1 className="font-[Manrope] text-2xl font-bold text-slate-950">{doctype}</h1><p className="mt-1 text-sm text-slate-500">Permission-aware ERPNext records.</p></div>
+        <div><h1 className="font-[Manrope] text-2xl font-bold text-slate-950">{doctype}</h1><p className="mt-1 text-sm text-slate-500">ERPNext records.</p></div>
         <div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={()=>navigate(`/command-center?module=${encodeURIComponent(moduleName)}&prompt=${encodeURIComponent(`show ${doctype}`)}&autoRun=true`)}>Open in Command Center</button><button className="btn-primary" onClick={()=>navigate(`/command-center?module=${encodeURIComponent(moduleName)}&prompt=${encodeURIComponent(`create ${doctype.toLowerCase()} draft`)}&autoRun=false`)}>Create Draft</button></div>
       </div>
       <div className="relative mt-4 max-w-md"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={search} onChange={event=>{setSearch(event.target.value);setPage(1)}} placeholder={`Search ${doctype}...`} className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-indigo-300"/></div>

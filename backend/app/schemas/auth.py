@@ -5,6 +5,8 @@ from pydantic import Field
 class CurrentUser(CamelModel):
     user: str
     full_name: str
+    first_name: str | None = None
+    avatar: str | None = None
     roles: list[str]
     company: str
     company_currency: str = "INR"
@@ -21,6 +23,8 @@ class LoginRequest(CamelModel):
 class LoginResult(CamelModel):
     user: str
     full_name: str
+    first_name: str | None = None
+    avatar: str | None = None
     email: str | None = None
     roles: list[str] = Field(default_factory=list)
     message: str = "Authentication delegated to Frappe"

@@ -31,6 +31,10 @@ class ChatMessageRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("module_context", "moduleContext"),
     )
+    date_range: dict[str, str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("date_range", "dateRange"),
+    )
     company: str | None = None
 
 
@@ -155,6 +159,19 @@ class ConfirmationPart(BaseModel):
     risk_level: Literal["medium", "high"] = "medium"
 
 
+class OCRMappingPreviewPart(BaseModel):
+    type: Literal["ocr_mapping_preview"] = "ocr_mapping_preview"
+    intake_id: str
+    source_document_type: str
+    target_doctype: str
+    extracted_fields: dict[str, Any] = Field(default_factory=dict)
+    draft_payload: dict[str, Any] = Field(default_factory=dict)
+    missing_fields: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    confirmation_required: bool = True
+    confirmation_id: str | None = None
+
+
 class SuggestedAction(BaseModel):
     label: str
     action_type: str
@@ -173,7 +190,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OCRMappingPreviewPart
 
 
 class AssistantChatResponse(BaseModel):

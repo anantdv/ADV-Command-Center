@@ -24,7 +24,7 @@ class QueryPlan(BaseModel):
     """Safe intermediate representation for a natural language ERP query.
 
     A QueryPlan is not an execution authorization. It is only a normalized plan
-    that still has to pass through the ERP/Frappe permission-aware services.
+    that still has to pass through the ERP/Frappe access-controlled services.
     """
 
     intent: QueryIntent

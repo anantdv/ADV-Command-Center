@@ -13,6 +13,7 @@ import { DocumentMappingPreview } from '../components/document-intake/DocumentMa
 import { DocumentUploadPanel } from '../components/document-intake/DocumentUploadPanel'
 import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
+import { useAppStore } from '../store/useAppStore'
 import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
 import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
@@ -35,6 +36,7 @@ export function CommandCenterPage() {
   const autoRun=searchParams.get('autoRun')==='true'
   const conversations = useConversations()
   const sendMessage = useSendChatMessage()
+  const dateRange = useAppStore(state=>state.dateRange)
   const [selectedId,setSelectedId] = useState<string>()
   const [newChat,setNewChat] = useState(false)
   const [optimisticUser,setOptimisticUser] = useState<string|null>(null)
@@ -59,7 +61,7 @@ export function CommandCenterPage() {
     if(sendMessage.isPending)return
     setOptimisticUser(text)
     setTransientResponse(null)
-    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text,module_context:moduleContext},{
+    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text,module_context:moduleContext,date_range:{from_date:dateRange.from,to_date:dateRange.to}},{
       onSuccess:response=>{setSelectedId(response.conversation_id);setNewChat(false);setTransientResponse(response)},
     })
   }
@@ -146,7 +148,7 @@ export function CommandCenterPage() {
           <div ref={endRef}/>
         </div>}
       </div>
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''} onAttachmentMessage={message=>{setNewChat(true);setOptimisticUser(message)}} onOcrProcessed={preview=>{setIntakePreview(preview);setShowIntake(true)}}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
     </section>
     {showIntake&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-slate-900">OCR Document Intake</h2><p className="text-xs text-slate-400">Upload supplier invoices, customer POs, quotations, or delivery documents.</p></div><button className="rounded-lg p-2 hover:bg-slate-100" onClick={()=>{setShowIntake(false);setIntakePreview(null)}}><X size={18}/></button></div>{intakePreview?<DocumentMappingPreview preview={intakePreview} busy={confirmIntake.isPending} onConfirm={()=>confirmIntake.mutate(intakePreview.intake_id)} onCancel={()=>setIntakePreview(null)}/>:<DocumentUploadPanel onProcessed={setIntakePreview}/>}</div></div>}
   </div>

@@ -19,7 +19,7 @@ registry = ToolRegistry()
 
 # Only low-risk read tools are executable during this stage.
 for name, description, permission in [
-    ("get_current_user_context", "Get permission-aware user context", "read"),
+    ("get_current_user_context", "Get ERPNext user context", "read"),
     ("get_allowed_doctypes", "List allowed DocTypes", "read"),
     ("get_doctype_schema", "Read an allowed DocType schema", "read"),
     ("list_records", "List permission-filtered ERP records", "read"),
@@ -50,7 +50,7 @@ for name, description in [
 
 for name, description, risk in [
     ("pin_to_dashboard", "Pin a refreshable read-only result to Overview", "medium"),
-    ("refresh_dashboard_widget", "Refresh a widget through permission-aware ERP APIs", "low"),
+    ("refresh_dashboard_widget", "Refresh a widget through ERP APIs", "low"),
     ("create_dashboard_widget", "Create AI dashboard metadata", "medium"),
     ("delete_dashboard_widget", "Delete AI dashboard metadata", "medium"),
 ]:
@@ -78,7 +78,7 @@ for name, description, permission in [
     ("extract_ocr_text", "Extract text locally from an uploaded PDF/image", "read"),
     ("build_document_mapping_preview", "Map extracted fields to a draft ERPNext document preview", "create"),
     ("get_report_available_columns", "Resolve readable columns for a DocType/report", "read"),
-    ("run_report_with_columns", "Run a permission-aware report with selected columns", "read"),
+    ("run_report_with_columns", "Run a report with selected columns", "read"),
     ("diagnose_report", "Diagnose report execution and response normalization", "read"),
 ]:
     registry.register(ToolDefinition(name=name,description=description,risk_level="medium" if permission=="create" else "low",requires_confirmation=False,permission_required=permission,input_schema={"type":"object"}))

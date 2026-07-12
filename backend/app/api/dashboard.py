@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from app.dependencies import CurrentUserDep, get_frappe_cookies
 from app.schemas.common import ApiResponse
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 @router.get("/overview", response_model=ApiResponse[DashboardOverviewResponse])
-async def overview(request: Request, user: CurrentUserDep): return ApiResponse(data=await dashboard_service.get_overview(get_frappe_cookies(request), user.user, user.roles))
+async def overview(request: Request, user: CurrentUserDep, from_date: str | None = Query(default=None), to_date: str | None = Query(default=None)): return ApiResponse(data=await dashboard_service.get_overview(get_frappe_cookies(request), user.user, user.roles))
 
 
 @router.get("/widgets", response_model=ApiResponse[list[DashboardWidgetData]])

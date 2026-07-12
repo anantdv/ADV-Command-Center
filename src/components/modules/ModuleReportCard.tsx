@@ -1,6 +1,7 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ModuleReport } from '../../types/module'
 import { formatCurrency } from '../../utils/formatters'
+import { chartPalette } from '../../theme/colors'
 
 export function ModuleReportCard({ report, onPrompt }: { report: ModuleReport; onPrompt?: (prompt: string) => void }) {
   const keys = report.data[0] ? Object.keys(report.data[0]) : []
@@ -13,7 +14,7 @@ export function ModuleReportCard({ report, onPrompt }: { report: ModuleReport; o
     </div>
     {report.reportType==='chart'&&report.data.length>0&&xKey&&yKey?<div className="h-56 p-4">
       <ResponsiveContainer width="100%" height="100%">
-        {report.chartType==='line'?<LineChart data={report.data}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey={xKey} tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey={yKey} stroke="#6366f1" strokeWidth={2}/></LineChart>:report.chartType==='pie'?<PieChart><Tooltip/><Pie data={report.data} dataKey={yKey} nameKey={xKey} outerRadius={80} fill="#6366f1" label/></PieChart>:<BarChart data={report.data}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey={xKey} tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Bar dataKey={yKey} fill="#6366f1" radius={[6,6,0,0]}/></BarChart>}
+        {report.chartType==='line'?<LineChart data={report.data}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey={xKey} tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey={yKey} stroke={chartPalette[0]} strokeWidth={2}/></LineChart>:report.chartType==='pie'?<PieChart><Tooltip/><Pie data={report.data} dataKey={yKey} nameKey={xKey} outerRadius={80} label>{report.data.map((_,index)=><Cell key={index} fill={chartPalette[index%chartPalette.length]}/>)}</Pie></PieChart>:<BarChart data={report.data}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey={xKey} tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Bar dataKey={yKey} radius={[6,6,0,0]}>{report.data.map((_,index)=><Cell key={index} fill={chartPalette[index%chartPalette.length]}/>)}</Bar></BarChart>}
       </ResponsiveContainer>
     </div>:<div className="overflow-x-auto p-4"><table className="w-full min-w-[520px] text-left text-xs"><thead><tr>{(report.columns.length?report.columns:keys.map(key=>({key,label:key.replace(/_/g,' ')}))).slice(0,6).map(column=><th key={column.key} className="px-3 py-2 text-[10px] uppercase tracking-wide text-slate-400">{column.label}</th>)}</tr></thead><tbody>{report.data.slice(0,8).map((row,index)=><tr key={String(row.name||index)} className="border-t">{(report.columns.length?report.columns:keys.map(key=>({key,label:key}))).slice(0,6).map(column=><td key={column.key} className="px-3 py-2 text-slate-600">{formatValue(column.key,row[column.key])}</td>)}</tr>)}</tbody></table>{report.data.length===0&&<p className="py-8 text-center text-xs text-slate-400">No data available.</p>}</div>}
   </section>

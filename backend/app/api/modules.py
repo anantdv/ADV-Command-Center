@@ -21,7 +21,7 @@ async def module(module_name: str, request: Request, _: CurrentUserDep) -> ApiRe
 
 
 @router.get("/{module_name}/dashboard", response_model=ApiResponse[ModuleDashboardResponse])
-async def module_dashboard(module_name: str, request: Request, user: CurrentUserDep) -> ApiResponse[ModuleDashboardResponse]:
+async def module_dashboard(module_name: str, request: Request, user: CurrentUserDep, from_date: str | None = Query(default=None), to_date: str | None = Query(default=None)) -> ApiResponse[ModuleDashboardResponse]:
     return ApiResponse(data=await module_service.get_module_dashboard(module_name, get_frappe_cookies(request), user.user, user.roles))
 
 

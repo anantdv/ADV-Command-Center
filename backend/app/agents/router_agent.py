@@ -127,44 +127,50 @@ class RouterAgent:
         self.extraction = extraction or LLMExtractionService()
         self.query_planner = query_planner or QueryPlannerService(self.extraction)
 
-    async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None) -> IntentResult:
+    async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None, date_range_context: dict[str, str] | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
         workflow = parse_workflow_intent(message)
         if workflow:
             data = {"action": workflow.get("action")} if workflow.get("action") else None
             if module_context and module_context.lower() == "selling" and workflow["intent"] == "workflow_list_pending" and not workflow.get("doctype"):
                 data = {"doctypes": ["Quotation", "Sales Order", "Sales Invoice", "Delivery Note"]}
-            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data=data, confidence=0.96, raw_prompt=message)
+            return IntentResult(intent=workflow["intent"], doctype=workflow.get("doctype"), record_name=workflow.get("record_name"), data=data, confidence=0.96, raw_prompt=message, date_range=date_range_context)
         if self._blocked_write_requested(text):
-            return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message)
+            return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message, date_range=date_range_context)
         detail = parse_detail_intent(message)
         if detail.matched:
-            return IntentResult(intent="get_record", doctype=detail.doctype, record_name=detail.name, confidence=detail.confidence, raw_prompt=message, missing_info_hint="I found the document number, but I need the document type to open it." if detail.needs_doctype else None)
+            return IntentResult(intent="get_record", doctype=detail.doctype, record_name=detail.name, confidence=detail.confidence, raw_prompt=message, missing_info_hint="I found the document number, but I need the document type to open it." if detail.needs_doctype else None, date_range=date_range_context)
         if settings.enable_report_composer and ReportComposerPlanner.looks_like_report_prompt(message):
             plan = await ReportComposerPlanner().plan_from_message(message, module_context)
-            return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan)
+            return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan, date_range=plan.date_range or date_range_context)
         file_format = self._file_format(text)
         file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
         controlled_crud_requested = bool(re.search(r"\b(create|add|update|change)\b", text))
         if (file_requested or controlled_crud_requested) and not settings.enable_llm_extraction:
-            return await self._classify_rules(message, module_context)
+            return self._with_date_context(await self._classify_rules(message, module_context), message, date_range_context)
         extracted = await self.extraction.extract_intent(message, module_context, user=user, conversation_id=conversation_id)
         if extracted and extracted.intent == "blocked_write":
             await self._audit_routing("llm_blocked_write_detected", extracted, user, conversation_id)
-            return self._from_extracted(extracted, message)
+            return self._with_date_context(self._from_extracted(extracted, message), message, date_range_context)
         if extracted and extracted.intent in {"generate_file", "pin_to_dashboard", "crud_create", "crud_update"} and extracted.confidence >= settings.llm_confidence_threshold:
-            return self._from_extracted(extracted, message)
+            return self._with_date_context(self._from_extracted(extracted, message), message, date_range_context)
         if extracted:
             await self._audit_routing("llm_extraction_fallback_to_rules", extracted, user, conversation_id, fallback=True)
         if file_requested or controlled_crud_requested:
-            return await self._classify_rules(message, module_context)
+            return self._with_date_context(await self._classify_rules(message, module_context), message, date_range_context)
         plan = await self.query_planner.plan(message, module_context, user=user, conversation_id=conversation_id, extracted_intent=extracted)
         if plan.intent != "unsupported":
-            return self._from_query_plan(plan, message, bool(extracted))
+            return self._with_date_context(self._from_query_plan(plan, message, bool(extracted)), message, date_range_context)
         result = await self._classify_rules(message, module_context)
         result.extraction_method = "rules"
         result.fallback_used = bool(extracted)
-        return result
+        return self._with_date_context(result, message, date_range_context)
+
+    @staticmethod
+    def _with_date_context(intent: IntentResult, message: str, date_range_context: dict[str, str] | None) -> IntentResult:
+        if date_range_context and not intent.date_range and not parse_date_range_phrase(message):
+            intent.date_range = date_range_context
+        return intent
 
     @staticmethod
     async def _audit_routing(action: str, extracted: ExtractedIntent, user: str, conversation_id: str | None, fallback: bool = False) -> None:

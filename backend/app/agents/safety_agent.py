@@ -27,7 +27,7 @@ class SafetyAgent:
         if any(term in text for term in ("ignore permission", "bypass permission", "use admin", "administrator access")):
             return SafetyResult(allowed=False, reason="I cannot bypass ERPNext permissions or use elevated access.", risk_level="high")
         if any(term in text for term in ("run sql", "raw sql", "sql query", "dump customer table", "dump table")):
-            return SafetyResult(allowed=False, reason="Direct SQL and database dumps are not available. I can use permission-aware ERPNext reports and records.", risk_level="high")
+            return SafetyResult(allowed=False, reason="Direct SQL and database dumps are not available. I can use ERPNext reports and records.", risk_level="high")
         if any(term in text for term in ("salary", "salaries", "payroll")):
             return SafetyResult(allowed=False, reason="Salary and payroll queries require a dedicated sensitive-data workflow and are disabled here.", sensitive_intent=True, risk_level="high")
         if intent.intent in {"crud_create", "crud_update"}:

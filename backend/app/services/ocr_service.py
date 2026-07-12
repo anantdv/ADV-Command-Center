@@ -20,6 +20,8 @@ class OCRService:
                 text = self._ocr_pdf(path)
         elif mime_type.startswith("image/"):
             text = self._ocr_image(path)
+        elif path.suffix.lower() == ".docx":
+            text = self._docx_text(path)
         elif path.suffix.lower() == ".txt":
             text = path.read_text(errors="ignore")
         else:
@@ -54,5 +56,14 @@ class OCRService:
             from PIL import Image
             import pytesseract
             return pytesseract.image_to_string(Image.open(path), lang=settings.ocr_language)
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _docx_text(path: Path) -> str:
+        try:
+            from docx import Document
+            document = Document(str(path))
+            return "\n".join(paragraph.text for paragraph in document.paragraphs)
         except Exception:
             return ""

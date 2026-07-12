@@ -1,14 +1,16 @@
 import { Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { moduleIconPalette, colorFromText } from '../../theme/colors'
 
 export function ModuleHeader({ label, description, doctypes = [], onAskAi, onCreateDraft }: { label: string; description?: string; doctypes?: string[]; onAskAi?:()=>void; onCreateDraft?:()=>void }) {
   const moduleSlug=label.toLowerCase()
+  const accent=moduleIconPalette[label]||colorFromText(label)
   return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <p className="eyebrow">ERP module workspace</p>
+        <p className="eyebrow flex items-center gap-2"><span className="size-2 rounded-full" style={{backgroundColor:accent}}/>ERP module workspace</p>
         <h1 className="mt-2 font-[Manrope] text-2xl font-bold text-slate-950">{label}</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-500">{description || 'Permission-aware ERPNext workspace with scoped AI commands.'}</p>
+        <p className="mt-2 max-w-2xl text-sm text-slate-500">{description || 'ERPNext workspace with scoped AI commands.'}</p>
       </div>
       <div className="flex flex-wrap gap-2">
         {onAskAi&&<button onClick={onAskAi} className="btn-primary"><Sparkles size={14}/>Ask AI about {label}</button>}

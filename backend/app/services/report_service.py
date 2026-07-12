@@ -8,7 +8,7 @@ from app.services.erpnext_service import ERPNextService
 
 
 class ReportService:
-    """Permission-aware facade for existing Frappe Script and Query Reports."""
+    """Facade for existing Frappe Script and Query Reports."""
 
     def __init__(self, client: FrappeClient):
         self.client = client

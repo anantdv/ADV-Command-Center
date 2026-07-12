@@ -101,7 +101,7 @@ class ChatService:
             )
         )
 
-        intent = await self.router.classify(request.message, request.module_context, user, conversation.id)
+        intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range)
         intent.conversation_id = conversation.id
         if intent.intent == "generate_file" and intent.source_type == "chat_result":
             self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))

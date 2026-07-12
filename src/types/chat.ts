@@ -1,5 +1,7 @@
 export type ChatRole = 'user' | 'assistant' | 'system' | 'tool'
 import type { SuggestedPrompt } from './suggestions'
+import type { AppDateRange } from './dateRange'
+import type { DocumentMappingPreview } from './documentIntake'
 
 export type SourceMeta = {
   source_type: 'doctype' | 'report' | 'tool'
@@ -89,7 +91,8 @@ export type ConfirmationPart = {
   cancel_label: string
   risk_level: 'medium' | 'high'
 }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart
+export type OcrMappingPreviewPart = DocumentMappingPreview & { type: 'ocr_mapping_preview' }
+export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OcrMappingPreviewPart
 
 export type SuggestedAction = {
   label: string
@@ -132,7 +135,7 @@ export interface AssistantChatResponse {
 
 export interface Conversation { id: string; title: string; createdAt: string; updatedAt: string }
 export interface CreateConversationRequest { title?: string }
-export interface SendChatMessageRequest { conversation_id?: string; message: string; module_context?: string; company?: string }
+export interface SendChatMessageRequest { conversation_id?: string; message: string; module_context?: string; company?: string; date_range?: { from_date: string; to_date: string }; dateRange?: AppDateRange }
 export interface ChatActionResponse { actionId: string; status: 'confirmed' | 'cancelled' }
 export type Invoice = { id: string; customer: string; due: string; days: number; amount: string; risk: string }
 export type CommandCenterData = { invoices: Invoice[] }

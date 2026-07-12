@@ -44,6 +44,8 @@ async def get_current_app_user(request: Request) -> CurrentUser:
     return CurrentUser(
         user=context.user,
         full_name=context.full_name,
+        first_name=(context.full_name or context.user).split()[0] if (context.full_name or context.user) else None,
+        avatar=None,
         roles=context.roles,
         company=context.company or "",
         company_currency=context.company_currency,

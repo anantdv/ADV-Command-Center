@@ -39,7 +39,7 @@ DEFAULT_CHARTS = [
 
 
 class DashboardService:
-    """User-scoped widget metadata with permission-aware refreshes.
+    """User-scoped widget metadata with ERP-backed refreshes.
 
     Metadata uses the FastAPI database fallback until companion list/update/delete methods ship.
     """
