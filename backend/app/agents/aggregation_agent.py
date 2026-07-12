@@ -6,6 +6,7 @@ from app.services.aggregation_service import AggregationService
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 from app.utils.table_formatter import build_table_part
+from app.utils.chart_data_normalizer import normalize_chart_data
 
 
 class AggregationAgent:
@@ -53,9 +54,10 @@ class AggregationAgent:
 
 
 def _chart_part(chart: dict) -> ChartPart:
+    chart = normalize_chart_data(chart)
     chart_type = chart.get("chart_type") or "bar"
     x_key = chart.get("x_key") or chart.get("name_key")
     y_key = chart.get("y_key") or chart.get("value_key")
     if chart_type not in {"bar", "line", "pie", "donut", "area"}:
         chart_type = "bar"
-    return ChartPart(title=chart.get("title") or "Aggregation Chart", chart_type=chart_type, data=chart.get("data") or [], x_key=x_key, y_key=y_key)
+    return ChartPart(result_id=new_id("res"), source_type="analytics", source_name=chart.get("source_name"), title=chart.get("title") or "Aggregation Chart", chart_type=chart_type, data=chart.get("data") or [], x_key=x_key, y_key=y_key, config=chart.get("config") or {}, available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"])

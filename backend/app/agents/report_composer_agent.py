@@ -4,6 +4,7 @@ from app.agents.router_agent import IntentResult
 from app.schemas.chat import AssistantChatResponse, ChartPart, PermissionMeta, SourceMeta, SuggestedAction, TableColumn, TablePart, TextPart, ToolCallPart
 from app.schemas.report_composer import ReportComposerPlanRequest, ReportComposerRunRequest, SaveReportViewRequest
 from app.services.report_composer_service import ReportComposerService, report_composer_service
+from app.utils.chart_data_normalizer import normalize_chart_data
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 
@@ -38,7 +39,11 @@ class ReportComposerAgent:
             TablePart(title=plan.title or plan.source.source_name, columns=[TableColumn(**column) for column in result.columns], rows=result.rows, total_rows=len(result.rows)),
         ]
         if result.chart:
-            parts.append(ChartPart(title=result.chart.get("title") or plan.title or "Custom Report", chart_type=result.chart.get("chart_type", "bar"), data=result.chart.get("data", result.rows), x_key=result.chart.get("x_key") or result.chart.get("name_key"), y_key=result.chart.get("y_key") or result.chart.get("value_key")))
+            chart = normalize_chart_data(result.chart)
+            chart_type = chart.get("chart_type", "bar")
+            if chart_type not in {"bar", "line", "pie", "donut", "area"}:
+                chart_type = "bar"
+            parts.append(ChartPart(result_id=new_id("res"), source_type="report_composer", source_name=plan.source.source_name, title=chart.get("title") or plan.title or "Custom Report", chart_type=chart_type, data=chart.get("data", result.rows), x_key=chart.get("x_key") or chart.get("name_key"), y_key=chart.get("y_key") or chart.get("value_key"), config={"filters": result.filters_applied, "plan": plan.model_dump(mode="json")}, available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"]))
         saved_summary = None
         if plan.view_name:
             view = await self.service.save_view(SaveReportViewRequest(name=plan.view_name, plan=plan), user, [])

@@ -11,6 +11,11 @@ import { PinToDashboardButton } from '../components/chat/PinToDashboardButton'
 import { SuggestedPromptButtons } from '../components/chat/SuggestedPromptButtons'
 import { DocumentMappingPreview } from '../components/document-intake/DocumentMappingPreview'
 import { DocumentUploadPanel } from '../components/document-intake/DocumentUploadPanel'
+import { ChangeChartTypeDialog } from '../components/results/ChangeChartTypeDialog'
+import { ColumnSelectorDialog } from '../components/results/ColumnSelectorDialog'
+import { RefineFiltersDialog } from '../components/results/RefineFiltersDialog'
+import { SaveReportViewDialog } from '../components/results/SaveReportViewDialog'
+import { PinTargetDialog } from '../components/results/PinTargetDialog'
 import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
 import { usePinChatResultToDashboard } from '../hooks/api/useDashboard'
@@ -46,6 +51,7 @@ export function CommandCenterPage() {
   const [transientResponse,setTransientResponse] = useState<AssistantChatResponse|null>(null)
   const [showIntake,setShowIntake] = useState(false)
   const [intakePreview,setIntakePreview] = useState<DocumentPreview|null>(null)
+  const [uiAction,setUiAction]=useState<{type:string;payload:Record<string,unknown>}|null>(null)
   const confirmIntake=useConfirmDocumentDraft()
   const endRef=useRef<HTMLDivElement>(null)
   const autoRunHandledRef=useRef(false)
@@ -101,6 +107,14 @@ export function CommandCenterPage() {
     if(suggestion.disabled)return
     const actionType=suggestion.actionType||suggestion.action_type||suggestion.type
     const payload=suggestion.payload||{}
+    if(suggestion.type==='ui_action'){
+      openUiAction(actionType,payload)
+      return
+    }
+    if(suggestion.type==='action'&&actionType==='convert_chart_type'){
+      openUiAction('open_chart_type_dialog',payload)
+      return
+    }
     if(suggestion.type==='prompt'&&suggestion.prompt){send(suggestion.prompt);return}
     if(suggestion.type==='export'){
       const format=String(payload.format||'xlsx')
@@ -114,6 +128,7 @@ export function CommandCenterPage() {
         const dashboardSource:DashboardWidgetSource={source_type:source.source_type==='tool'?'chat_result':source.source_type,source_name:source.source_name,doctype:source.doctype||(source.source_type==='doctype'?source.source_name:null),report_name:source.report_name||(source.source_type==='report'?source.source_name:null),filters:source.filters,fields:source.fields}
         pinSuggestion.mutate({conversation_id:conversationId,message_id:messageId,title:source.source_name,widget_type:'table',source:dashboardSource,target_type:'overview'})
       }
+      else openUiAction('open_pin_target_dialog',payload)
       return
     }
     if(suggestion.type==='navigation'){
@@ -136,6 +151,16 @@ export function CommandCenterPage() {
       return
     }
     if(suggestion.prompt)send(suggestion.prompt)
+  }
+  const openUiAction=(actionType:string,payload:Record<string,unknown>)=>{
+    const dialogMap:Record<string,string>={
+      open_chart_type_dialog:'chart',
+      open_column_selector_dialog:'columns',
+      open_refine_filters_dialog:'filters',
+      open_save_report_view_dialog:'save',
+      open_pin_target_dialog:'pin',
+    }
+    setUiAction({type:dialogMap[actionType]||'unavailable',payload})
   }
   const runRowClick=(row:Record<string,unknown>)=>{
     const meta=row._meta as {doctype?:string;name?:string;clickable?:boolean}|undefined
@@ -173,6 +198,11 @@ export function CommandCenterPage() {
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''} onAttachmentMessage={message=>{setNewChat(true);setOptimisticUser(message)}} onOcrProcessed={preview=>{setIntakePreview(preview);setShowIntake(true)}}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
     </section>
     {showIntake&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-slate-900">OCR Document Intake</h2><p className="text-xs text-slate-400">Upload supplier invoices, customer POs, quotations, or delivery documents.</p></div><button className="rounded-lg p-2 hover:bg-slate-100" onClick={()=>{setShowIntake(false);setIntakePreview(null)}}><X size={18}/></button></div>{intakePreview?<DocumentMappingPreview preview={intakePreview} busy={confirmIntake.isPending} onConfirm={()=>confirmIntake.mutate(intakePreview.intake_id)} onCancel={()=>setIntakePreview(null)}/>:<DocumentUploadPanel onProcessed={setIntakePreview}/>}</div></div>}
+    <ChangeChartTypeDialog open={uiAction?.type==='chart'} currentType={String(uiAction?.payload.current_chart_type||uiAction?.payload.currentChartType||uiAction?.payload.chart_type||'')} onApply={()=>setUiAction(null)} onClose={()=>setUiAction(null)}/>
+    <ColumnSelectorDialog open={uiAction?.type==='columns'} columns={Array.isArray(uiAction?.payload.columns)?uiAction.payload.columns.map(String):[]} onClose={()=>setUiAction(null)}/>
+    <RefineFiltersDialog open={uiAction?.type==='filters'} filters={(uiAction?.payload.filters as Record<string,unknown>)||{}} onClose={()=>setUiAction(null)}/>
+    <SaveReportViewDialog open={uiAction?.type==='save'} onClose={()=>setUiAction(null)}/>
+    <PinTargetDialog open={uiAction?.type==='pin'} onClose={()=>setUiAction(null)} onPin={()=>setUiAction(null)}/>
   </div>
 }
 

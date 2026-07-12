@@ -1,4 +1,4 @@
-export type SuggestionType = 'prompt' | 'action' | 'navigation' | 'export' | 'pin' | 'workflow_action' | 'crud_confirmation'
+export type SuggestionType = 'prompt' | 'action' | 'ui_action' | 'navigation' | 'export' | 'pin' | 'workflow_action' | 'crud_confirmation'
 export type SuggestionRisk = 'low' | 'medium' | 'high'
 
 export interface SuggestedPrompt {

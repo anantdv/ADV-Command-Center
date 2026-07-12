@@ -43,13 +43,13 @@ def get_suggestions_for_context(ctx: SuggestionContext) -> list[SuggestedPrompt]
 
 
 def _general_table_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
-    if not ctx.message_id:
-        return []
+    result_id = _result_id(ctx)
+    missing = None if result_id else "This action needs a saved result context."
     return [
-        SuggestedPrompt(id=_id("export", "xlsx"), label="Export to Excel", type="export", action_type="export_result", payload={"format": "xlsx", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-spreadsheet", group="share"),
-        SuggestedPrompt(id=_id("export", "pdf"), label="Export to PDF", type="export", action_type="export_result", payload={"format": "pdf", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-down", group="share"),
-        SuggestedPrompt(id=_id("pin", "overview"), label="Pin to Overview", type="pin", action_type="pin_to_dashboard", payload={"conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="pin", group="share"),
-        _prompt("Change Columns", _same("Change columns for this result", ctx), "change_columns", group="view"),
+        SuggestedPrompt(id=_id("export", "xlsx"), label="Export to Excel", type="export", action_type="export_result", payload={"result_id": result_id, "format": "xlsx", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-spreadsheet", disabled=not result_id, disabled_reason=missing, group="share"),
+        SuggestedPrompt(id=_id("export", "pdf"), label="Export to PDF", type="export", action_type="export_result", payload={"result_id": result_id, "format": "pdf", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-down", disabled=not result_id, disabled_reason=missing, group="share"),
+        SuggestedPrompt(id=_id("pin", "overview"), label="Pin to Overview", type="pin", action_type="pin_to_dashboard", payload={"result_id": result_id, "target_type": "overview", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="pin", disabled=not result_id, disabled_reason=missing, group="share"),
+        SuggestedPrompt(id=_id("ui", "change_columns"), label="Change Columns", type="ui_action", action_type="open_column_selector_dialog", payload={"result_id": result_id, "columns": ctx.columns}, icon="columns", disabled=not result_id, disabled_reason=missing, group="view"),
         _prompt("Summarize as Chart", _same("Summarize this result as a chart", ctx), "summarize_chart", group="view"),
     ]
 
@@ -86,17 +86,32 @@ def _doctype_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
 
 
 def _analytics_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
-    if ctx.result_type not in {"analytics", "report_composer"}:
+    if ctx.result_type not in {"chart", "analytics", "report_composer"}:
         return []
+    result_id = _result_id(ctx)
+    missing = None if result_id else "This chart action needs an active result. Please rerun the report and try again."
+    base_payload = {
+        "result_id": result_id,
+        "source_type": ctx.source_type,
+        "source_name": ctx.source_name,
+        "doctype": ctx.doctype,
+        "report_name": ctx.report_name,
+        "filters": ctx.filters,
+        "columns": ctx.columns,
+        "current_chart_type": ctx.chart_type,
+    }
     suggestions = [
         _prompt("Show Details", f"Show detail records for {ctx.source_name or ctx.doctype or 'this report'}", "show_details", group="analysis"),
-        _prompt("Save Report View", "Save this report view", "save_report_view", group="analysis"),
-        _prompt("Change Chart Type", "Change chart type for this report", "change_chart", group="view"),
+        SuggestedPrompt(id=_id("ui", "save_report_view"), label="Save Report View", type="ui_action", action_type="open_save_report_view_dialog", payload=base_payload, disabled=not result_id, disabled_reason=missing, group="analysis"),
+        SuggestedPrompt(id=_id("ui", "change_chart_type"), label="Change Chart Type", type="ui_action", action_type="open_chart_type_dialog", payload={**base_payload, "available_chart_types": ["bar", "line", "area", "pie", "donut"]}, disabled=not result_id, disabled_reason=missing, group="view"),
+        SuggestedPrompt(id=_id("ui", "refine_filters"), label="Refine Filters", type="ui_action", action_type="open_refine_filters_dialog", payload=base_payload, disabled=not result_id, disabled_reason=missing, group="view"),
+        SuggestedPrompt(id=_id("ui", "pin"), label="Pin", type="ui_action", action_type="open_pin_target_dialog", payload=base_payload, disabled=not result_id, disabled_reason=missing, group="share"),
     ]
     if ctx.chart_type != "bar":
-        suggestions.append(_prompt("Convert to Bar Chart", "Convert this result to a bar chart", "bar_chart", group="view"))
+        suggestions.append(SuggestedPrompt(id=_id("action", "bar_chart"), label="Convert to Bar Chart", type="action", action_type="convert_chart_type", payload={**base_payload, "chart_type": "bar"}, disabled=not result_id, disabled_reason=missing, group="view"))
     if ctx.chart_type != "line" and _looks_time_series(ctx):
-        suggestions.append(_prompt("Convert to Line Chart", "Convert this result to a line chart", "line_chart", group="view"))
+        suggestions.append(SuggestedPrompt(id=_id("action", "line_chart"), label="Convert to Line Chart", type="action", action_type="convert_chart_type", payload={**base_payload, "chart_type": "line"}, disabled=not result_id, disabled_reason=missing, group="view"))
+    suggestions.append(_prompt("Monthly Trend", "show monthly trend for this report", "monthly_trend", group="analysis"))
     return suggestions
 
 
@@ -133,3 +148,8 @@ def _status_is(ctx: SuggestionContext, values: set[str]) -> bool:
 
 def _looks_time_series(ctx: SuggestionContext) -> bool:
     return any(column in {"period", "month", "posting_date", "transaction_date", "creation"} for column in ctx.columns)
+
+
+def _result_id(ctx: SuggestionContext) -> str | None:
+    result_id = ctx.extra.get("result_id") or ctx.message_id
+    return str(result_id) if result_id else None

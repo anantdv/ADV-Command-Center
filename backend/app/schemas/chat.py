@@ -91,11 +91,17 @@ class ToolCallPart(BaseModel):
 
 class ChartPart(BaseModel):
     type: Literal["chart"] = "chart"
+    result_id: str | None = None
+    source_type: str | None = None
+    source_name: str | None = None
+    module: str | None = None
     title: str
     chart_type: Literal["bar", "line", "pie", "donut", "area"]
     data: list[dict[str, Any]]
     x_key: str | None = None
     y_key: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    available_actions: list[str] = Field(default_factory=list)
 
 
 class FilePart(BaseModel):

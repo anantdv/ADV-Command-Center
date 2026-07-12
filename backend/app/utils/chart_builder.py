@@ -2,6 +2,7 @@ from collections import Counter
 from typing import Any
 
 from app.schemas.chat import ChartPart
+from app.utils.chart_data_normalizer import normalize_chart_data
 
 
 def try_build_chart(title: str, rows: list[dict[str, Any]]) -> ChartPart | None:
@@ -19,11 +20,11 @@ def try_build_chart(title: str, rows: list[dict[str, Any]]) -> ChartPart | None:
             if row.get(date_key) is not None and _number(row.get(numeric_key)) is not None
         ]
         if data:
-            return ChartPart(title=title, chart_type="line", data=data[:20], x_key=date_key, y_key=numeric_key)
+            return _chart_part(title=title, chart_type="line", data=data[:20], x_key=date_key, y_key=numeric_key)
 
     if "status" in keys:
         counts = Counter(str(row.get("status") or "Unknown") for row in rows)
-        return ChartPart(
+        return _chart_part(
             title=f"{title} by Status",
             chart_type="bar",
             data=[{"status": status, "count": count} for status, count in counts.items()],
@@ -41,8 +42,12 @@ def try_build_chart(title: str, rows: list[dict[str, Any]]) -> ChartPart | None:
             {party_key: party, "grand_total": total}
             for party, total in sorted(totals.items(), key=lambda item: item[1], reverse=True)[:10]
         ]
-        return ChartPart(title=f"{title} by {party_key.title()}", chart_type="bar", data=data, x_key=party_key, y_key="grand_total")
+        return _chart_part(title=f"{title} by {party_key.title()}", chart_type="bar", data=data, x_key=party_key, y_key="grand_total")
     return None
+
+
+def _chart_part(**kwargs: Any) -> ChartPart:
+    return ChartPart.model_validate(normalize_chart_data(kwargs))
 
 
 def infer_widget_chart_config(rows: list[dict[str, Any]], group_by: str | None = None, aggregate_field: str | None = None) -> dict[str, str]:

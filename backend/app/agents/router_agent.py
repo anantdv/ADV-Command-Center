@@ -132,6 +132,14 @@ class RouterAgent:
 
     async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None, date_range_context: dict[str, str] | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
+        if self._report_ui_action_without_context(text):
+            return IntentResult(
+                intent="unsupported",
+                confidence=0.95,
+                raw_prompt=message,
+                missing_info_hint="Please select a chart or report result first, then choose that action from the result buttons.",
+                date_range=date_range_context,
+            )
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message, date_range=date_range_context)
 
@@ -143,6 +151,13 @@ class RouterAgent:
             plan = await ReportComposerPlanner().plan_from_message(message, module_context)
             return IntentResult(intent="report_composer", doctype=plan.source.source_name, confidence=plan.confidence, raw_prompt=message, report_composer_plan=plan, date_range=plan.date_range or date_range_context)
         file_format = self._file_format(text)
+        if self._report_ui_action_without_context(text):
+            return IntentResult(
+                intent="unsupported",
+                confidence=0.95,
+                raw_prompt=message,
+                missing_info_hint="Please select a chart or report result first, then choose that action from the result buttons.",
+            )
         file_requested = bool(file_format and any(term in text for term in ("export", "generate", "create", "save", "download")))
         controlled_crud_requested = bool(re.search(r"\b(create|add|update|change)\b", text))
         if (file_requested or controlled_crud_requested) and not settings.enable_llm_extraction:
@@ -400,6 +415,18 @@ class RouterAgent:
             r"^(?:please\s+)?(?:send\s+email|email\s+customer)\b",
         )
         return any(re.search(pattern, text) for pattern in command_patterns)
+
+    @staticmethod
+    def _report_ui_action_without_context(text: str) -> bool:
+        safe_ui_patterns = (
+            r"\bchange\s+chart\s+type\b",
+            r"\bchange\s+columns?\b",
+            r"\brefine\s+filters?\b",
+            r"\bsave\s+report\s+view\b",
+            r"\bpin\s+(?:to\s+)?(?:overview|module)?\b",
+            r"\bconvert\s+to\s+(?:bar|line|area|pie|donut)\s+chart\b",
+        )
+        return any(re.search(pattern, text) for pattern in safe_ui_patterns)
 
     @staticmethod
     def _filters(text: str, doctype: str) -> dict[str, Any]:

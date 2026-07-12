@@ -42,11 +42,20 @@ export type TablePart = {
 }
 export type ChartPart = {
   type: 'chart'
+  result_id?: string | null
+  resultId?: string | null
+  source_type?: string | null
+  sourceType?: string | null
+  source_name?: string | null
+  sourceName?: string | null
+  module?: string | null
   title?: string
   chart_type?: 'bar' | 'line' | 'pie' | 'donut' | 'area'
   data?: Array<Record<string, unknown>>
   x_key?: string | null
   y_key?: string | null
+  config?: Record<string, unknown>
+  available_actions?: string[]
   chartConfig?: unknown
 }
 export type FilePart = { type: 'file'; fileId: string; fileName: string; fileType: string; fileFormat?: string; downloadUrl?: string; file_id?: string; file_name?: string; file_type?: string; file_format?: string; mime_type?: string; download_url?: string }

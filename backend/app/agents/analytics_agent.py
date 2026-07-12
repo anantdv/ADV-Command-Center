@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.agents.router_agent import IntentResult
 from app.schemas.chat import AssistantChatResponse, ChartPart, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart
 from app.services.analytics_service import AnalyticsService, analytics_service
+from app.utils.chart_data_normalizer import normalize_chart_data
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 from app.utils.table_formatter import build_table_part
@@ -28,7 +29,8 @@ class AnalyticsAgent:
             user,
         )
         rows = result.rows
-        chart = result.chart or {}
+        chart = normalize_chart_data(result.chart or {})
+        result_id = new_id("res")
         summary = result.summary or f"I generated {result.title}."
         parts = [
             TextPart(content=summary),
@@ -36,11 +38,16 @@ class AnalyticsAgent:
         ]
         if chart and chart.get("data"):
             parts.append(ChartPart(
+                result_id=result_id,
+                source_type="analytics",
+                source_name=result.source.get("source_name") or intent.doctype or result.title,
                 title=chart.get("title") or result.title,
-                chart_type=chart.get("chart_type") or chart_type or "bar",
+                chart_type=_safe_chart_type(chart.get("chart_type") or chart_type or "bar"),
                 data=chart.get("data") or [],
                 x_key=chart.get("x_key") or chart.get("name_key") or "label",
                 y_key=chart.get("y_key") or chart.get("value_key") or "value",
+                config={"filters": result.filters, "date_range": intent.date_range, "analytics_key": intent.analytics_key},
+                available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"],
             ))
         parts.append(build_table_part(result.title, rows, doctype=result.source.get("source_name")))
         message_id = new_id("msg")
@@ -61,3 +68,7 @@ class AnalyticsAgent:
             content=summary,
             created_at=utc_now(),
         )
+
+
+def _safe_chart_type(value: str) -> str:
+    return value if value in {"bar", "line", "pie", "donut", "area"} else "bar"

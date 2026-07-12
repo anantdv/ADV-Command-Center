@@ -7,7 +7,7 @@ from pydantic import Field
 from app.schemas.common import CamelModel
 
 
-SuggestionType = Literal["prompt", "action", "navigation", "export", "pin", "workflow_action", "crud_confirmation"]
+SuggestionType = Literal["prompt", "action", "ui_action", "navigation", "export", "pin", "workflow_action", "crud_confirmation"]
 SuggestionRisk = Literal["low", "medium", "high"]
 ResultType = Literal[
     "table",

@@ -3,6 +3,8 @@ import type { SuggestedPrompt } from '../../types/suggestions'
 
 const icons:Record<string,typeof Sparkles>={
   prompt:Sparkles,
+  ui_action:Sparkles,
+  action:Sparkles,
   export:FileSpreadsheet,
   pin:Pin,
   navigation:Navigation,
@@ -37,9 +39,16 @@ function missingPayloadReason(suggestion: SuggestedPrompt) {
     if(typeof payload.route==='string'||typeof payload.download_url==='string'||typeof payload.downloadUrl==='string')return null
     return 'This action is unavailable because required context is missing.'
   }
-  if(suggestion.type==='export'&&(!payload.format||!payload.message_id&&!payload.messageId))return 'This action is unavailable because required context is missing.'
-  if(suggestion.type==='pin'&&(!payload.message_id&&!payload.messageId))return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='ui_action'&&(!payload.result_id&&!payload.resultId))return 'This chart action needs an active result. Please rerun the report and try again.'
+  if(suggestion.type==='action'&&actionNeedsResult(suggestion)&&(!payload.result_id&&!payload.resultId))return 'This chart action needs an active result. Please rerun the report and try again.'
+  if(suggestion.type==='export'&&(!payload.format||(!payload.result_id&&!payload.resultId&&!payload.message_id&&!payload.messageId)))return 'This action is unavailable because required context is missing.'
+  if(suggestion.type==='pin'&&(!payload.result_id&&!payload.resultId&&!payload.message_id&&!payload.messageId))return 'This action is unavailable because required context is missing.'
   if(suggestion.type==='workflow_action'&&(!payload.doctype||!payload.name||!payload.action))return 'This action is unavailable because required context is missing.'
   if(suggestion.type==='crud_confirmation'&&(!payload.confirmation_id&&!payload.confirmationId))return 'This action is unavailable because required context is missing.'
   return null
+}
+
+function actionNeedsResult(suggestion: SuggestedPrompt) {
+  const actionType=suggestion.actionType||suggestion.action_type
+  return actionType==='convert_chart_type'
 }

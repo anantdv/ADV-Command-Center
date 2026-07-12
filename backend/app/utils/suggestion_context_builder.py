@@ -33,6 +33,8 @@ class SuggestionContextBuilder:
         document_name = self._document_name(table, response)
         workflow_actions = self._workflow_actions(table, response)
         extra: dict[str, Any] = {}
+        if chart and chart.result_id:
+            extra["result_id"] = chart.result_id
         if confirmation:
             extra["confirmation_id"] = confirmation.confirmation_id
         if file_part:

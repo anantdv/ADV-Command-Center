@@ -131,7 +131,7 @@ class ChatService:
         elif intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
             response = await self.erp_agent.handle(intent, cookies)
         else:
-            response = self._unsupported_response(conversation.id)
+            response = self._unsupported_response(conversation.id, intent.missing_info_hint)
 
         response.extraction = ExtractionMeta(
             method=intent.extraction_method,
@@ -189,7 +189,7 @@ class ChatService:
 
     async def _pin_intent(self, intent: IntentResult, cookies: dict | None, user: str) -> AssistantChatResponse:
         if not intent.doctype and not intent.report_name:
-            return self._unsupported_response(intent.conversation_id or new_id("conv"))
+            return self._unsupported_response(intent.conversation_id or new_id("conv"), intent.missing_info_hint)
         message_id=new_id("msg")
         source_type="report" if intent.report_name else "doctype"
         source_name=intent.report_name or intent.doctype or "ERPNext"
@@ -316,20 +316,21 @@ class ChatService:
         )
 
     @staticmethod
-    def _unsupported_response(conversation_id: str) -> AssistantChatResponse:
+    def _unsupported_response(conversation_id: str, message: str | None = None) -> AssistantChatResponse:
         message_id = new_id("msg")
+        content = message or READ_ONLY_FALLBACK
         return AssistantChatResponse(
             conversation_id=conversation_id,
             message_id=message_id,
             intent="unsupported",
-            parts=[TextPart(content=READ_ONLY_FALLBACK)],
+            parts=[TextPart(content=content)],
             suggested_actions=[
                 SuggestedAction(label="Show customers", action_type="prompt", reason="show customers"),
                 SuggestedAction(label="Show sales invoices", action_type="prompt", reason="show sales invoices"),
                 SuggestedAction(label="Show stock balance", action_type="prompt", reason="show stock balance"),
             ],
             id=message_id,
-            content=READ_ONLY_FALLBACK,
+            content=content,
             created_at=utc_now(),
         )
 
