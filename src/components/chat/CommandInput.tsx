@@ -7,7 +7,7 @@ import type { DocumentMappingPreview } from '../../types/documentIntake'
 const MAX_CLIENT_UPLOAD_MB = 20
 const ACCEPTED_TYPES = '.pdf,.png,.jpg,.jpeg,.webp,.docx'
 
-export function CommandInput({ onSend, compact = false, initialValue = '', onOcrProcessed, onAttachmentMessage }: { onSend?: (text: string) => void; compact?: boolean; initialValue?: string; onOcrProcessed?: (preview: DocumentMappingPreview) => void; onAttachmentMessage?: (text: string) => void }) {
+export function CommandInput({ onSend, compact = false, initialValue = '', onOcrProcessed, onAttachmentMessage, onAttachmentError }: { onSend?: (text: string) => void; compact?: boolean; initialValue?: string; onOcrProcessed?: (preview: DocumentMappingPreview) => void; onAttachmentMessage?: (text: string) => void; onAttachmentError?: (message: string) => void }) {
   const [text, setText] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -36,7 +36,9 @@ export function CommandInput({ onSend, compact = false, initialValue = '', onOcr
       setStatus('I extracted the document. Please review the draft mapping.')
       onOcrProcessed?.(preview)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'OCR intake failed.')
+      const message=error instanceof Error ? error.message : 'OCR intake failed.'
+      setStatus(message)
+      onAttachmentError?.(message)
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }

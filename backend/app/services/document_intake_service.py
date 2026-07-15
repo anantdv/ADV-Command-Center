@@ -23,10 +23,12 @@ class DocumentIntakeService:
         self.root = Path(settings.document_intake_storage_root)
         self.ocr = OCRService()
         self.mapper = DocumentMappingService()
+        self.max_file_size_mb = settings.ocr_max_file_size_mb
 
     async def upload(self, file: UploadFile, user: str = "unknown") -> DocumentUploadResponse:
         content = await file.read()
         validate_upload(file.filename or "upload", file.content_type, len(content), settings.ocr_max_file_size_mb)
+        await log_audit_event(AuditEvent(user=user, action="document_upload_started", tool_name="document_intake", allowed=True, risk_level="medium", input_summary=file.filename or "upload", output_summary=f"{len(content)} bytes", file_name=file.filename or "upload"))
         intake_id = new_id("intake")
         directory = self.root / intake_id
         directory.mkdir(parents=True, exist_ok=True)

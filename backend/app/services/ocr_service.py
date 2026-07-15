@@ -22,10 +22,14 @@ class OCRService:
             text = self._ocr_image(path)
         elif path.suffix.lower() == ".docx":
             text = self._docx_text(path)
-        elif path.suffix.lower() == ".txt":
-            text = path.read_text(errors="ignore")
         else:
             raise AppError("Unsupported document format for OCR.", 415)
+        if not text.strip():
+            raise AppError(
+                "OCR is not fully configured on this server. Please install OCR dependencies.",
+                503,
+                {"code": "ocr_dependency_missing"},
+            )
         preview = " ".join(text.split())[:1200]
         return OCRResult(intake_id=intake_id, extracted_text_preview=preview, full_text_available=bool(text), confidence=None, page_count=pages)
 

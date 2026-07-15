@@ -12,6 +12,7 @@ from app.core.exceptions import AppError
 from app.db.base import Base
 from app.db.session import engine
 from app.logging_config import configure_logging
+from app.schemas.errors import api_error
 
 configure_logging()
 logger = structlog.get_logger(__name__)
@@ -22,6 +23,7 @@ async def lifespan(_: FastAPI):
     settings.validate_llm_runtime()
     settings.validate_rag_runtime()
     Base.metadata.create_all(bind=engine)
+    logger.info("document_intake_routes_registered", prefix=f"{settings.api_prefix}/document-intake")
     yield
 
 
@@ -43,18 +45,20 @@ async def health() -> dict:
 
 @app.exception_handler(AppError)
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={"success":False,"message":exc.message,"details":exc.details})
+    code = str(exc.details.get("code") or "app_error")
+    return JSONResponse(status_code=exc.status_code, content=api_error(code, exc.message, exc.message, include_debug=settings.app_env == "development", details=exc.details))
 
 
 @app.exception_handler(HTTPException)
 async def http_error_handler(_: Request, exc: HTTPException) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={"success":False,"message":str(exc.detail),"details":{}})
+    message = str(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=api_error("http_error", message, message, include_debug=settings.app_env == "development"))
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
     errors = [{key: value for key, value in item.items() if key != "ctx"} for item in exc.errors()]
-    return JSONResponse(status_code=422, content={"success":False,"message":"Request validation failed","details":{"errors":errors}})
+    return JSONResponse(status_code=422, content=api_error("validation_error", "Request validation failed", str(errors), include_debug=settings.app_env == "development", details={"errors": errors}))
 
 
 @app.exception_handler(Exception)
@@ -62,5 +66,5 @@ async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResp
     logger.exception("unhandled_backend_error", path=request.url.path, error_type=type(exc).__name__)
     return JSONResponse(
         status_code=500,
-        content={"success": False, "message": "An internal server error occurred.", "details": {}},
+        content=api_error("internal_server_error", "The server could not complete this request.", str(exc), include_debug=settings.app_env == "development"),
     )

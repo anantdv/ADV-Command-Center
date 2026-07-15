@@ -9,6 +9,11 @@ from app.services.document_intake_service import document_intake_service
 router = APIRouter(prefix="/document-intake", tags=["Document Intake"])
 
 
+@router.get("/health", response_model=ApiResponse[dict])
+async def document_intake_health() -> ApiResponse[dict]:
+    return ApiResponse(data={"status": "ok", "ocr_enabled": True, "max_file_size_mb": document_intake_service.max_file_size_mb})
+
+
 @router.post("/upload", response_model=ApiResponse[DocumentUploadResponse])
 async def upload_document(user: CurrentUserDep, file: UploadFile = File(...)) -> ApiResponse[DocumentUploadResponse]:
     return ApiResponse(data=await document_intake_service.upload(file, user.user))
