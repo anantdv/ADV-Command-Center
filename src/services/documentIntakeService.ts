@@ -11,6 +11,7 @@ export const documentIntakeService={
  process:(intakeId:string)=>apiClient.post<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/process`),
  getOcr:(intakeId:string)=>apiClient.get<OCRResult>(`/api/document-intake/${encodeURIComponent(intakeId)}/ocr`),
  getMappingPreview:(intakeId:string)=>apiClient.get<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/mapping-preview`),
+ updateMappingPreview:(intakeId:string,request:{target_doctype:string;draft_payload:Record<string,unknown>})=>apiClient.put<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/mapping-preview`,request),
  confirmCreate:(intakeId:string)=>apiClient.post(`/api/document-intake/${encodeURIComponent(intakeId)}/confirm-create`),
  cancel:(intakeId:string)=>apiClient.post<boolean>(`/api/document-intake/${encodeURIComponent(intakeId)}/cancel`),
 }

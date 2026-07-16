@@ -9,7 +9,7 @@ from fastapi import UploadFile
 from app.config import settings
 from app.core.audit import AuditEvent, log_audit_event
 from app.core.exceptions import AppError
-from app.schemas.document_intake import DocumentMappingPreview, DocumentUploadResponse, ExtractedDocumentFields, OCRResult
+from app.schemas.document_intake import DocumentMappingPreview, DocumentUploadResponse, ExtractedDocumentFields, OCRResult, UpdateMappingPreviewRequest
 from app.services.crud_service import crud_service
 from app.services.document_mapping_service import DocumentMappingService
 from app.services.ocr_service import OCRService
@@ -50,7 +50,7 @@ class DocumentIntakeService:
         meta["extracted"] = extracted.model_dump()
         meta["status"] = "processed"
         self._write_meta(intake_id, meta)
-        preview = await self.mapper.build_mapping_preview(intake_id, extracted, cookies, user)
+        preview = await self.mapper.build_mapping_preview(intake_id, extracted, cookies, user, ocr.extracted_text_preview)
         meta["mapping_preview"] = preview.model_dump(mode="json")
         self._write_meta(intake_id, meta)
         await log_audit_event(AuditEvent(user=user, action="document_intake_processed", tool_name="document_intake", allowed=True, risk_level="medium", input_summary=intake_id, output_summary=preview.target_doctype))
@@ -71,8 +71,27 @@ class DocumentIntakeService:
             raise AppError("Mapping preview is not available yet. Process the document first.", 409)
         return DocumentMappingPreview(**meta["mapping_preview"])
 
+    async def update_mapping_preview(self, intake_id: str, request: UpdateMappingPreviewRequest, cookies: dict | None = None, user: str = "unknown") -> DocumentMappingPreview:
+        meta = self._meta(intake_id)
+        preview = await self.mapper.rebuild_from_edited_payload(
+            intake_id,
+            meta.get("extracted", {}).get("source_document_type") or meta.get("mapping_preview", {}).get("source_document_type") or "unknown",
+            request.target_doctype,
+            request.draft_payload,
+            cookies,
+            user,
+            meta.get("ocr", {}).get("extracted_text_preview"),
+            meta.get("extracted", {}).get("warnings") or [],
+        )
+        meta["mapping_preview"] = preview.model_dump(mode="json")
+        meta["status"] = "edited"
+        self._write_meta(intake_id, meta)
+        return preview
+
     async def confirm_create(self, intake_id: str, cookies: dict | None = None, user: str = "unknown"):
         preview = await self.mapping_preview(intake_id)
+        if not preview.valid:
+            raise AppError(preview.invalid_reason or "Required fields are missing before draft creation.", 422)
         if not preview.confirmation_id:
             raise AppError("Missing confirmation. Fix required fields and generate a new preview.", 409)
         return await crud_service.confirm(preview.confirmation_id, cookies, user)

@@ -3,7 +3,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from app.dependencies import CurrentUserDep, get_frappe_cookies
 from app.schemas.common import ApiResponse
 from app.schemas.crud import ConfirmCrudResponse
-from app.schemas.document_intake import DocumentMappingPreview, DocumentUploadResponse, OCRResult
+from app.schemas.document_intake import DocumentMappingPreview, DocumentUploadResponse, OCRResult, UpdateMappingPreviewRequest
 from app.services.document_intake_service import document_intake_service
 
 router = APIRouter(prefix="/document-intake", tags=["Document Intake"])
@@ -37,6 +37,11 @@ async def get_ocr(intake_id: str, _: CurrentUserDep) -> ApiResponse[OCRResult]:
 @router.get("/{intake_id}/mapping-preview", response_model=ApiResponse[DocumentMappingPreview])
 async def mapping_preview(intake_id: str, _: CurrentUserDep) -> ApiResponse[DocumentMappingPreview]:
     return ApiResponse(data=await document_intake_service.mapping_preview(intake_id))
+
+
+@router.put("/{intake_id}/mapping-preview", response_model=ApiResponse[DocumentMappingPreview])
+async def update_mapping_preview(intake_id: str, payload: UpdateMappingPreviewRequest, request: Request, user: CurrentUserDep) -> ApiResponse[DocumentMappingPreview]:
+    return ApiResponse(data=await document_intake_service.update_mapping_preview(intake_id, payload, get_frappe_cookies(request), user.user))
 
 
 @router.post("/{intake_id}/confirm-create", response_model=ApiResponse[ConfirmCrudResponse])

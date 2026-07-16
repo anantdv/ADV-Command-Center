@@ -32,6 +32,9 @@ class ExtractedLineItem(BaseModel):
     uom: str | None = None
     rate: float | None = None
     amount: float | None = None
+    confidence: float = 0.0
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    warning: str | None = None
 
 
 class ExtractedDocumentFields(BaseModel):
@@ -52,13 +55,33 @@ class ExtractedDocumentFields(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class FieldExtraction(BaseModel):
+    fieldname: str
+    label: str
+    value: Any | None = None
+    confidence: float = 0.0
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    required: bool = False
+    warning: str | None = None
+
+
 class DocumentMappingPreview(BaseModel):
     intake_id: str
     source_document_type: UploadedDocumentType
     target_doctype: TargetERPDocumentType
     extracted_fields: ExtractedDocumentFields
+    field_extractions: list[FieldExtraction] = Field(default_factory=list)
     draft_payload: dict[str, Any]
     missing_fields: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    raw_text_preview: str | None = None
+    confidence: float | None = None
+    valid: bool = False
+    invalid_reason: str | None = None
     confirmation_required: bool = True
     confirmation_id: str | None = None
+
+
+class UpdateMappingPreviewRequest(BaseModel):
+    target_doctype: TargetERPDocumentType
+    draft_payload: dict[str, Any]
