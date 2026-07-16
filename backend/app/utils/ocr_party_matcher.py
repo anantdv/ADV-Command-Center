@@ -20,7 +20,8 @@ SUPPLIER_EXCLUSION_LABELS = BUYER_LABELS | {
 COMPANY_WORDS = {
     "ltd", "limited", "pte", "pty", "company", "trading", "freezers",
     "hardware", "supplies", "distributors", "wholesale", "enterprise",
-    "corporation", "corp", "industries", "foods", "services",
+    "corporation", "corp", "industries", "foods", "services", "motors",
+    "pharmacy", "electrical", "engineering", "logistics",
 }
 
 

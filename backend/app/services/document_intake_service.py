@@ -15,7 +15,9 @@ from app.services.document_mapping_service import DocumentMappingService
 from app.services.ocr_service import OCRService
 from app.utils.file_type_validator import validate_upload
 from app.utils.ids import new_id
-from app.utils.ocr_field_extractor import extract_document_fields
+from app.utils.ocr_field_extractor import extract_document_fields, extract_field_candidates
+from app.utils.ocr_line_item_extractor import extract_line_items_from_tables
+from app.utils.ocr_party_matcher import extract_likely_supplier_names_from_header
 
 
 class DocumentIntakeService:
@@ -45,12 +47,32 @@ class DocumentIntakeService:
         meta["status"] = "processing"
         self._write_meta(intake_id, meta)
         ocr = await self.ocr.extract_text(intake_id, meta["path"], meta["mime_type"])
-        extracted = extract_document_fields(ocr.extracted_text_preview)
+        full_text = ocr.full_text or ocr.extracted_text_preview
+        lines = ocr.lines or [line for line in ocr.extracted_text_preview.splitlines() if line.strip()]
+        tables = ocr.tables or []
+        field_candidates = extract_field_candidates(lines)
+        extracted = extract_document_fields(full_text, lines=lines, tables=tables)
+        extraction_context = {
+            "source": ocr.source,
+            "full_text": full_text,
+            "lines": lines,
+            "tables": tables,
+            "diagnostics": ocr.diagnostics,
+            "field_candidates": field_candidates,
+        }
         meta["ocr"] = ocr.model_dump()
         meta["extracted"] = extracted.model_dump()
+        meta["extraction_context"] = extraction_context
         meta["status"] = "processed"
         self._write_meta(intake_id, meta)
-        preview = await self.mapper.build_mapping_preview(intake_id, extracted, cookies, user, ocr.extracted_text_preview)
+        preview = await self.mapper.build_mapping_preview(
+            intake_id,
+            extracted,
+            cookies,
+            user,
+            ocr.extracted_text_preview,
+            extraction_context,
+        )
         meta["mapping_preview"] = preview.model_dump(mode="json")
         self._write_meta(intake_id, meta)
         await log_audit_event(AuditEvent(user=user, action="document_intake_processed", tool_name="document_intake", allowed=True, risk_level="medium", input_summary=intake_id, output_summary=preview.target_doctype))
@@ -64,6 +86,38 @@ class DocumentIntakeService:
         if "ocr" not in meta:
             raise AppError("Document has not been processed yet.", 409)
         return OCRResult(**meta["ocr"])
+
+    async def extraction_debug(self, intake_id: str) -> dict[str, Any]:
+        meta = self._meta(intake_id)
+        if "ocr" not in meta:
+            raise AppError("Document has not been processed yet.", 409)
+        ocr = meta.get("ocr") or {}
+        context = meta.get("extraction_context") or {}
+        lines = context.get("lines") or ocr.get("lines") or []
+        field_candidates = context.get("field_candidates") or extract_field_candidates(lines)
+        supplier_candidates = extract_likely_supplier_names_from_header("\n".join(lines))
+        table_items = extract_line_items_from_tables(context.get("tables") or ocr.get("tables") or [])
+        detected_labels = sorted(
+            {
+                label
+                for label in ["invoice no", "invoice date", "bill date", "grand total", "amount due", "tax", "supplier", "sold to", "bill to", "description", "qty", "rate", "amount"]
+                if any(label in line.lower() for line in lines[:80])
+            }
+        )
+        warnings = list((meta.get("extracted") or {}).get("warnings") or [])
+        diagnostics = ocr.get("diagnostics") or {}
+        return {
+            "source": ocr.get("source") or diagnostics.get("selected_source"),
+            "text_length": len(ocr.get("full_text") or ocr.get("extracted_text_preview") or ""),
+            "first_lines": lines[:30],
+            "detected_labels": detected_labels,
+            "supplier_candidates": supplier_candidates,
+            "field_candidates": field_candidates,
+            "line_item_candidates": [item.model_dump() for item in table_items] or (meta.get("extracted") or {}).get("items") or [],
+            "tables_detected": context.get("tables") or ocr.get("tables") or [],
+            "warnings": warnings,
+            "diagnostics": diagnostics,
+        }
 
     async def mapping_preview(self, intake_id: str) -> DocumentMappingPreview:
         meta = self._meta(intake_id)

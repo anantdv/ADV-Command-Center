@@ -22,6 +22,12 @@ class OCRResult(BaseModel):
     full_text_available: bool = False
     confidence: float | None = None
     page_count: int | None = None
+    source: str | None = None
+    full_text: str | None = None
+    lines: list[str] = Field(default_factory=list)
+    pages: list[dict[str, Any]] = Field(default_factory=list)
+    tables: list[dict[str, Any]] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractedLineItem(BaseModel):
@@ -75,6 +81,10 @@ class DocumentMappingPreview(BaseModel):
     missing_fields: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     raw_text_preview: str | None = None
+    supplier_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    field_candidates: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    line_item_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    extraction_debug_available: bool = False
     confidence: float | None = None
     valid: bool = False
     invalid_reason: str | None = None

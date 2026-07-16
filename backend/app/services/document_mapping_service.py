@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas.document_intake import DocumentMappingPreview, ExtractedDocumentFields, FieldExtraction
-from app.services.crud_service import CrudService, crud_service
+from app.services.crud_service import crud_service
 from app.utils.document_mapping_validator import validate_mapping
+from app.utils.ocr_field_extractor import extract_field_candidates
 from app.utils.ocr_item_matcher import OcrItemMatcher
 from app.utils.ocr_party_matcher import OcrPartyMatcher
 
@@ -14,14 +15,30 @@ class DocumentMappingService:
         self.party_matcher = OcrPartyMatcher()
         self.item_matcher = OcrItemMatcher()
 
-    async def build_mapping_preview(self, intake_id: str, extracted: ExtractedDocumentFields, cookies: dict | None = None, user: str = "unknown", raw_text_preview: str | None = None) -> DocumentMappingPreview:
+    async def build_mapping_preview(
+        self,
+        intake_id: str,
+        extracted: ExtractedDocumentFields,
+        cookies: dict | None = None,
+        user: str = "unknown",
+        raw_text_preview: str | None = None,
+        extraction_context: dict[str, Any] | None = None,
+    ) -> DocumentMappingPreview:
         target = extracted.target_doctype
         if not target:
             target = "Material Request"
         payload = self._payload(extracted, target)
-        field_extractions = await self._field_extractions(target, extracted, raw_text_preview or "", cookies)
+        context = extraction_context or {}
+        full_text = str(context.get("full_text") or raw_text_preview or "")
+        lines = context.get("lines") or []
+        field_candidates = context.get("field_candidates") or extract_field_candidates(lines)
+        field_extractions = await self._field_extractions(target, extracted, full_text, cookies, field_candidates)
         payload = self._apply_selected_matches(payload, field_extractions)
         preview = await crud_service.prepare_create(target, payload, conversation_id=intake_id, message_id=None, cookies=cookies, user=user)
+        supplier_candidates = []
+        if target == "Purchase Invoice":
+            supplier_field = next((field for field in field_extractions if field.fieldname == "supplier"), None)
+            supplier_candidates = supplier_field.candidates if supplier_field else []
         mapping = DocumentMappingPreview(
             intake_id=intake_id,
             source_document_type=extracted.source_document_type,
@@ -32,6 +49,10 @@ class DocumentMappingService:
             missing_fields=[field.model_dump() for field in preview.missing_fields],
             warnings=_dedupe([*extracted.warnings, *preview.warnings]),
             raw_text_preview=raw_text_preview,
+            supplier_candidates=supplier_candidates,
+            field_candidates=field_candidates,
+            line_item_candidates=[item.model_dump() for item in extracted.items],
+            extraction_debug_available=bool(context.get("diagnostics") or lines or field_candidates),
             confidence=self._confidence(field_extractions),
             confirmation_required=True,
             confirmation_id=preview.confirmation_id,
@@ -73,15 +94,18 @@ class DocumentMappingService:
             return _clean({"supplier": extracted.supplier, "posting_date": extracted.posting_date, "items": items})
         return _clean({"material_request_type": "Purchase", "items": items})
 
-    async def _field_extractions(self, target: str, extracted: ExtractedDocumentFields, raw_text: str, cookies: dict | None) -> list[FieldExtraction]:
+    async def _field_extractions(self, target: str, extracted: ExtractedDocumentFields, raw_text: str, cookies: dict | None, field_candidates: dict[str, list[dict[str, Any]]] | None = None) -> list[FieldExtraction]:
         output: list[FieldExtraction] = []
+        field_candidates = field_candidates or {}
         if target == "Purchase Invoice":
             supplier_match = await self.party_matcher.match_supplier(raw_text, extracted.supplier, cookies)
             output.append(FieldExtraction(fieldname="supplier", label="Supplier", value=extracted.supplier, confidence=0.9 if supplier_match.get("matched") else 0.25, candidates=supplier_match.get("candidates") or [], required=True, warning=supplier_match.get("warning")))
             output.extend([
-                FieldExtraction(fieldname="bill_no", label="Bill No", value=extracted.bill_no, confidence=0.82 if extracted.bill_no else 0.0, warning=None if extracted.bill_no else "Could not confidently extract invoice number."),
-                FieldExtraction(fieldname="bill_date", label="Bill Date", value=extracted.bill_date, confidence=0.82 if extracted.bill_date else 0.0, warning=None if extracted.bill_date else "Could not confidently extract invoice date."),
+                FieldExtraction(fieldname="bill_no", label="Bill No", value=extracted.bill_no, confidence=0.82 if extracted.bill_no else 0.0, candidates=field_candidates.get("bill_no") or [], warning=None if extracted.bill_no else "Could not confidently extract invoice number."),
+                FieldExtraction(fieldname="bill_date", label="Bill Date", value=extracted.bill_date, confidence=0.82 if extracted.bill_date else 0.0, candidates=field_candidates.get("bill_date") or [], warning=None if extracted.bill_date else "Could not confidently extract invoice date."),
                 FieldExtraction(fieldname="posting_date", label="Posting Date", value=extracted.posting_date, confidence=0.7 if extracted.posting_date else 0.0, required=True),
+                FieldExtraction(fieldname="grand_total", label="Grand Total", value=extracted.grand_total, confidence=0.78 if extracted.grand_total else 0.0, candidates=field_candidates.get("grand_total") or []),
+                FieldExtraction(fieldname="tax_amount", label="Tax Amount", value=extracted.tax_amount, confidence=0.72 if extracted.tax_amount else 0.0, candidates=field_candidates.get("tax_amount") or []),
             ])
         elif target == "Sales Order":
             customer_match = await self.party_matcher.match_customer(raw_text, extracted.customer, cookies)

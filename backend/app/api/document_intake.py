@@ -34,6 +34,11 @@ async def get_ocr(intake_id: str, _: CurrentUserDep) -> ApiResponse[OCRResult]:
     return ApiResponse(data=await document_intake_service.ocr_result(intake_id))
 
 
+@router.get("/{intake_id}/extraction-debug", response_model=ApiResponse[dict])
+async def extraction_debug(intake_id: str, _: CurrentUserDep) -> ApiResponse[dict]:
+    return ApiResponse(data=await document_intake_service.extraction_debug(intake_id))
+
+
 @router.get("/{intake_id}/mapping-preview", response_model=ApiResponse[DocumentMappingPreview])
 async def mapping_preview(intake_id: str, _: CurrentUserDep) -> ApiResponse[DocumentMappingPreview]:
     return ApiResponse(data=await document_intake_service.mapping_preview(intake_id))
