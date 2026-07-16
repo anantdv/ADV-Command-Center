@@ -30,7 +30,7 @@ class DocumentMappingService:
             field_extractions=field_extractions,
             draft_payload=preview.data,
             missing_fields=[field.model_dump() for field in preview.missing_fields],
-            warnings=[*extracted.warnings, *preview.warnings],
+            warnings=_dedupe([*extracted.warnings, *preview.warnings]),
             raw_text_preview=raw_text_preview,
             confidence=self._confidence(field_extractions),
             confirmation_required=True,
@@ -48,7 +48,7 @@ class DocumentMappingService:
             extracted_fields=extracted,
             draft_payload=preview.data,
             missing_fields=[field.model_dump() for field in preview.missing_fields],
-            warnings=[*(warnings or []), *preview.warnings],
+            warnings=_dedupe([*(warnings or []), *preview.warnings]),
             raw_text_preview=raw_text_preview,
             confirmation_required=True,
             confirmation_id=preview.confirmation_id,
@@ -113,3 +113,15 @@ class DocumentMappingService:
 
 def _clean(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value not in (None, "", [])}
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        output.append(text)
+    return output

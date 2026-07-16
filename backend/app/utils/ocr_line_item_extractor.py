@@ -15,7 +15,7 @@ def extract_line_items_from_text(text: str) -> list[ExtractedLineItem]:
         if re.search(r"\b(description|item|qty|quantity|rate|price|amount)\b", line, re.I):
             in_table = True
             continue
-        if not in_table and len(items) == 0:
+        if not in_table and len(items) == 0 and not _looks_like_item_row(line):
             continue
         parsed = _parse_line_item(line)
         if parsed:
@@ -25,6 +25,20 @@ def extract_line_items_from_text(text: str) -> list[ExtractedLineItem]:
         if len(items) >= 50:
             break
     return items
+
+
+def extract_possible_item_lines(text: str) -> list[ExtractedLineItem]:
+    """Low-confidence fallback for invoice lines with amounts but weak table structure."""
+    output: list[ExtractedLineItem] = []
+    for line in normalize_ocr_lines(text):
+        if not _looks_like_item_row(line):
+            continue
+        item = _parse_line_item(line)
+        if item:
+            item.confidence = 0.35
+            item.warning = "Low confidence line item. Please review before creating draft."
+            output.append(item)
+    return output
 
 
 def _parse_line_item(line: str) -> ExtractedLineItem | None:
@@ -54,4 +68,13 @@ def _parse_line_item(line: str) -> ExtractedLineItem | None:
         qty=qty,
         rate=rate,
         amount=amount,
+        confidence=0.68,
     )
+
+
+def _looks_like_item_row(line: str) -> bool:
+    if re.search(r"\b(subtotal|total|tax|vat|gst|invoice|sold to|bill to)\b", line, re.I):
+        return False
+    numbers = re.findall(r"\b\d[\d,]*(?:\.\d+)?\b", line)
+    words = re.findall(r"[A-Za-z]{2,}", line)
+    return len(numbers) >= 3 and len(words) >= 1

@@ -78,6 +78,7 @@ class DocumentMappingPreview(BaseModel):
     confidence: float | None = None
     valid: bool = False
     invalid_reason: str | None = None
+    blocking_errors: list[str] = Field(default_factory=list)
     confirmation_required: bool = True
     confirmation_id: str | None = None
 

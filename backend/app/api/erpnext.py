@@ -108,6 +108,16 @@ async def document_detail(
     )
 
 
+@router.get("/search-link", response_model=ApiResponse[list[dict[str, str]]])
+async def search_link(
+    request: Request,
+    doctype: str = Query(...),
+    txt: str = Query(default=""),
+) -> ApiResponse[list[dict[str, str]]]:
+    logger.info("backend_endpoint", endpoint="erpnext.search_link", doctype=doctype)
+    return ApiResponse(data=await service().search_link(doctype, txt, get_frappe_cookies(request)))
+
+
 @router.post("/create-record", response_model=ApiResponse[RecordResponse])
 async def create_record(
     payload: RecordMutationRequest,

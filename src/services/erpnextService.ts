@@ -8,5 +8,6 @@ export const getDoctypeSchema=(request:DoctypeSchemaRequest):Promise<DoctypeSche
 export const listRecords=(request:ListRecordsRequest):Promise<ListRecordsResponse>=>env.useMockApi?mockErpnextService.listRecords(request):apiClient.post('/api/erpnext/list-records',request)
 export const getRecord=(request:GetRecordRequest):Promise<RecordResponse>=>env.useMockApi?mockErpnextService.getRecord(request):apiClient.post('/api/erpnext/get-record',request)
 export const getDocumentDetail=(doctype:string,name:string):Promise<DocumentDetailResponse>=>apiClient.get(`/api/erpnext/documents/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`)
+export const searchLink=(doctype:string,txt:string):Promise<Array<{name:string;label:string;description:string}>>=>apiClient.get(`/api/erpnext/search-link?doctype=${encodeURIComponent(doctype)}&txt=${encodeURIComponent(txt)}`)
 // Business record mutations intentionally live only in the Command Center
 // confirmation workflow. Do not add direct create/update calls here.

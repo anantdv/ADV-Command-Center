@@ -5,7 +5,7 @@ from app.schemas.document_intake import ExtractedDocumentFields, ExtractedLineIt
 from app.utils.amount_parser import extract_amount_after_labels
 from app.utils.document_classifier import classify_document_type
 from app.utils.date_parser import parse_any_date
-from app.utils.ocr_line_item_extractor import extract_line_items_from_text
+from app.utils.ocr_line_item_extractor import extract_line_items_from_text, extract_possible_item_lines
 from app.utils.ocr_text_cleaner import clean_ocr_text, normalize_ocr_lines
 
 TARGET_MAP = {
@@ -41,7 +41,7 @@ def extract_document_fields(text: str) -> ExtractedDocumentFields:
     fields.currency = totals.get("currency")
     fields.grand_total = totals.get("grand_total")
     fields.tax_amount = totals.get("tax_amount")
-    party = _extract_party(lines)
+    party = _extract_party(lines, supplier_only=source_type in {"supplier_invoice", "supplier_quotation", "goods_receipt_document"})
     if source_type in {"supplier_invoice", "supplier_quotation", "goods_receipt_document"}:
         fields.supplier = party
     elif source_type in {"customer_purchase_order", "customer_request_for_quotation", "delivery_document"}:
@@ -60,7 +60,8 @@ def extract_document_fields(text: str) -> ExtractedDocumentFields:
 
 
 def extract_line_items(text: str) -> list[ExtractedLineItem]:
-    return extract_line_items_from_text(text)
+    structured = extract_line_items_from_text(text)
+    return structured or extract_possible_item_lines(text)
 
 
 def is_label_like(value: str | None) -> bool:
@@ -125,14 +126,16 @@ def extract_currency_and_totals(lines: list[str]) -> dict:
     }
 
 
-def _extract_party(lines: list[str]) -> str | None:
+def _extract_party(lines: list[str], supplier_only: bool = False) -> str | None:
+    labels = ["supplier", "vendor", "from"] if supplier_only else ["supplier", "vendor", "from", "customer", "buyer", "bill to"]
     for index, line in enumerate(lines[:20]):
-        match = re.search(r"\b(?:supplier|vendor|from|customer|buyer|bill to)\b\s*:?\s*(.+)$", line, re.I)
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(rf"\b(?:{label_pattern})\b\s*:?\s*(.+)$", line, re.I)
         if match:
             candidate = _clean_party(match.group(1))
             if candidate and not is_label_like(candidate):
                 return candidate
-        if re.fullmatch(r"(?:supplier|vendor|from|customer|buyer|bill to)\s*:?", line, re.I) and index + 1 < len(lines):
+        if re.fullmatch(rf"(?:{label_pattern})\s*:?", line, re.I) and index + 1 < len(lines):
             candidate = _clean_party(lines[index + 1])
             if candidate and not is_label_like(candidate):
                 return candidate

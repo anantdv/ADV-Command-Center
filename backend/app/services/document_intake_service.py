@@ -91,7 +91,11 @@ class DocumentIntakeService:
     async def confirm_create(self, intake_id: str, cookies: dict | None = None, user: str = "unknown"):
         preview = await self.mapping_preview(intake_id)
         if not preview.valid:
-            raise AppError(preview.invalid_reason or "Required fields are missing before draft creation.", 422)
+            raise AppError(
+                preview.invalid_reason or "Supplier and at least one valid item are required before creating a Purchase Invoice draft.",
+                422,
+                {"code": "document_mapping_invalid", "blocking_errors": preview.blocking_errors},
+            )
         if not preview.confirmation_id:
             raise AppError("Missing confirmation. Fix required fields and generate a new preview.", 409)
         return await crud_service.confirm(preview.confirmation_id, cookies, user)

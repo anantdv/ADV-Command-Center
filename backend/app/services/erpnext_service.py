@@ -230,6 +230,31 @@ class ERPNextService:
             permission=data.get("permission"),
         )
 
+    async def search_link(
+        self,
+        doctype: str,
+        txt: str,
+        cookies: dict | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, str]]:
+        field = {"Supplier": "supplier_name", "Customer": "customer_name", "Item": "item_name"}.get(doctype, "name")
+        if settings.use_mock_data:
+            rows = self._mock_records(doctype, {})
+        else:
+            rows = (await self.list_records(doctype, {}, ["name", field], min(limit * 5, 100), cookies=cookies)).records
+        needle = (txt or "").lower()
+        matches = []
+        for row in rows:
+            name = str(row.get("name") or "")
+            label = str(row.get(field) or name)
+            if not needle or needle in name.lower() or needle in label.lower():
+                display = f"{name} - {label}" if doctype == "Item" and label and label != name else label
+                description = str(row.get("stock_uom") or doctype) if doctype == "Item" else doctype
+                matches.append({"name": name, "label": display, "description": description})
+            if len(matches) >= limit:
+                break
+        return matches
+
     async def create_record(
         self,
         doctype: str,
