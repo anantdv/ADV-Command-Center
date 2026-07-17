@@ -25,6 +25,30 @@ class AnalyticsPlanBuilder:
 
     @staticmethod
     def _key(text: str) -> str | None:
+        if "monthly sales vs purchase" in text or "sales vs purchase" in text:
+            return "monthly_sales_vs_purchase"
+        if "receivable" in text:
+            return "receivables_aging"
+        if "payable" in text:
+            return "payables_aging"
+        if "stock balance" in text:
+            return "stock_balance"
+        if "stock ledger" in text:
+            return "stock_ledger"
+        if "stock entr" in text and "type" in text:
+            return "stock_entries_by_type"
+        if "purchase trend" in text:
+            return "purchase_trend"
+        if "top supplier" in text or ("supplier" in text and "purchase value" in text):
+            return "top_suppliers_by_purchase"
+        if "unpaid purchase invoice" in text:
+            return "unpaid_purchase_invoices"
+        if "purchase invoice" in text and "supplier" in text:
+            return "purchase_invoices_by_supplier"
+        if "payment trend" in text:
+            return "payment_trend"
+        if "journal entr" in text and "type" in text:
+            return "journal_entries_by_type"
         if "monthly sales trend" in text or ("sales trend" in text and "monthly" in text):
             return "monthly_sales_trend"
         if "top" in text and "customer" in text and "outstanding" in text:

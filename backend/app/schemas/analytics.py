@@ -11,11 +11,12 @@ class AnalyticsPlanRequest(CamelModel):
 
 
 class AnalyticsRunRequest(CamelModel):
-    analytics_key: str
+    analytics_key: str | None = None
     filters: dict[str, Any] | None = None
     date_range: dict[str, Any] | None = None
     chart_type: str | None = None
     limit: int | None = None
+    module_context: str | None = None
 
 
 class AnalyticsPlanResponse(CamelModel):
@@ -38,3 +39,6 @@ class AnalyticsResult(CamelModel):
     filters: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
     permission: dict[str, Any] | None = None
+    filters_applied: dict[str, Any] = Field(default_factory=dict)
+    drilldown: dict[str, Any] | None = None
+    result_id: str | None = None

@@ -6,6 +6,7 @@ from app.schemas.common import PermissionMeta
 from app.schemas.dashboard import DashboardWidgetData
 from app.schemas.erpnext import AllowedDoctype, DocumentDetailResponse
 from app.schemas.modules import ModuleDashboardResponse, ModuleDetail, ModuleDoctypeInfo, ModuleDoctypeNavigationResponse, ModuleDoctypeRecordsResponse, ModuleKPI, ModuleRecentDocument, ModuleRecords, ModuleReportCard, ModuleReports, ModuleSummary
+from app.services.analytics_catalog_service import analytics_catalog_service
 from app.services.erpnext_service import ERPNextService
 from app.services.report_service import ReportService
 from app.services.selling_service import SellingService
@@ -171,7 +172,7 @@ class ModuleService:
             if not summary:
                 raise AppError("Module not found", 404)
             doctypes = [item["doctype"] for item in module_doctypes(summary.name)]
-            return ModuleDashboardResponse(module_name=summary.name, label=summary.name, doctypes=doctypes, kpis=self._dashboard_kpis(summary.name, doctypes, {}), reports=self._dashboard_report_cards(summary.name), recent_documents=self._mock_recent_documents(summary.name, doctypes), quick_actions=self._quick_actions(summary.name), permissions=summary.permissions.model_dump(), pinned_widgets=await self._pinned_widgets(summary.name, cookies, user, roles))
+            return ModuleDashboardResponse(module_name=summary.name, label=summary.name, doctypes=doctypes, kpis=self._dashboard_kpis(summary.name, doctypes, {}), reports=await self._dashboard_report_cards(summary.name, cookies), recent_documents=self._mock_recent_documents(summary.name, doctypes), quick_actions=self._quick_actions(summary.name), permissions=summary.permissions.model_dump(), pinned_widgets=await self._pinned_widgets(summary.name, cookies, user, roles))
         modules = await ModulePermissionBuilder(ERPNextService(self._client())).get_accessible_modules(cookies)
         module = next((item for item in modules if item.module_name.lower() == normalized.lower()), None)
         if not module:
@@ -181,7 +182,7 @@ class ModuleService:
             label=module.label,
             doctypes=module.doctypes,
             kpis=await self._live_kpis(module.module_name, module.doctypes, cookies),
-            reports=self._dashboard_report_cards(module.module_name),
+            reports=await self._dashboard_report_cards(module.module_name, cookies),
             recent_documents=await self._live_recent_documents(module.module_name, module.doctypes, cookies),
             quick_actions=self._quick_actions(module.module_name),
             permissions={"accessible": True},
@@ -291,9 +292,25 @@ class ModuleService:
                 continue
         return self._dashboard_kpis(module_name, doctypes, counts)
 
-    def _dashboard_report_cards(self, module_name: str) -> list[ModuleReportCard]:
+    async def _dashboard_report_cards(self, module_name: str, cookies: dict | None = None) -> list[ModuleReportCard]:
         normalized = normalize_module_name(module_name)
         cards: list[ModuleReportCard] = []
+        catalog = await analytics_catalog_service.list_accessible_catalog(normalized, cookies)
+        if catalog:
+            for definition in catalog[:8]:
+                cards.append(ModuleReportCard(
+                    id=definition.key,
+                    title=definition.title,
+                    description=definition.description or f"Run {definition.title.lower()} analytics.",
+                    report_type="analytics",
+                    source_doctype=definition.source_name if definition.source_type == "doctype" else None,
+                    report_name=definition.source_name if definition.source_type == "standard_report" else None,
+                    chart_type=definition.default_chart,
+                    data=[],
+                    columns=[],
+                    action_prompt=f"show {definition.title.lower()}",
+                ))
+            return cards
         for index, report in enumerate((MODULE_REGISTRY.get(normalized) or {}).get("reports", [])[:6]):
             cards.append(ModuleReportCard(id=f"report_{index}", title=report, description=f"Open {report} in Command Center.", report_type="standard_report", report_name=report, data=[], columns=[], action_prompt=f"show {report.lower()}"))
         for title, prompt in MODULE_REPORT_SHORTCUTS.get(normalized, [])[:3]:

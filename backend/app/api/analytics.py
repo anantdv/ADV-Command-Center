@@ -11,8 +11,13 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 @router.get("/catalog", response_model=ApiResponse[dict])
-async def catalog(user: CurrentUserDep) -> ApiResponse[dict]:
-    return ApiResponse(data=await analytics_service.catalog(user.user))
+async def catalog(request: Request, user: CurrentUserDep, module: str | None = None) -> ApiResponse[dict]:
+    return ApiResponse(data=await analytics_service.catalog(user.user, module, get_frappe_cookies(request)))
+
+
+@router.get("/{analytics_key}", response_model=ApiResponse[dict])
+async def definition(analytics_key: str, user: CurrentUserDep) -> ApiResponse[dict]:
+    return ApiResponse(data=analytics_service.catalog_service.get_definition(analytics_key).model_dump(mode="json"))
 
 
 @router.post("/plan", response_model=ApiResponse[AnalyticsPlanResponse])
@@ -22,4 +27,13 @@ async def plan(payload: AnalyticsPlanRequest, user: CurrentUserDep) -> ApiRespon
 
 @router.post("/run", response_model=ApiResponse[AnalyticsResult])
 async def run(payload: AnalyticsRunRequest, request: Request, user: CurrentUserDep) -> ApiResponse[AnalyticsResult]:
+    if not payload.analytics_key:
+        from app.core.exceptions import AppError
+
+        raise AppError("analytics_key is required.", 422)
     return ApiResponse(data=await analytics_service.run_analytics(payload.analytics_key, payload.filters, payload.date_range, payload.chart_type, payload.limit, get_frappe_cookies(request), user.user))
+
+
+@router.post("/{analytics_key}/run", response_model=ApiResponse[AnalyticsResult])
+async def run_by_key(analytics_key: str, payload: AnalyticsRunRequest, request: Request, user: CurrentUserDep) -> ApiResponse[AnalyticsResult]:
+    return ApiResponse(data=await analytics_service.run_analytics(analytics_key, payload.filters, payload.date_range, payload.chart_type, payload.limit, get_frappe_cookies(request), user.user))
