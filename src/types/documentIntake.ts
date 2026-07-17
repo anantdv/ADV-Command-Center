@@ -1,4 +1,6 @@
-export type DocumentUploadResponse={intake_id:string;file_id:string;file_name:string;mime_type:string;status:'uploaded'|'processing'|'processed'|'failed';message:string}
+export type IntakeSourceDocumentType='supplier_invoice'|'customer_purchase_order'
+export type IntakeTargetDoctype='Purchase Invoice'|'Sales Order'
+export type DocumentUploadResponse={intake_id:string;file_id:string;file_name:string;mime_type:string;source_document_type?:IntakeSourceDocumentType|null;target_doctype?:IntakeTargetDoctype|null;status:'uploaded'|'processing'|'processed'|'failed';message:string}
 export type OCRResult={intake_id:string;extracted_text_preview:string;full_text_available:boolean;confidence?:number|null;page_count?:number|null;source?:string|null;full_text?:string|null;lines?:string[];pages?:Array<Record<string,unknown>>;tables?:Array<Record<string,unknown>>;diagnostics?:Record<string,unknown>}
 export type ExtractedLineItem={item_code?:string|null;item_name?:string|null;description?:string|null;qty?:number|null;uom?:string|null;rate?:number|null;amount?:number|null;confidence?:number;candidates?:Array<Record<string,unknown>>;warning?:string|null}
 export type FieldExtraction={fieldname:string;label:string;value?:unknown;confidence:number;candidates:Array<Record<string,unknown>>;required?:boolean;warning?:string|null}

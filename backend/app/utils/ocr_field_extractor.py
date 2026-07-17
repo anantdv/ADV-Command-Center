@@ -33,10 +33,10 @@ LABEL_WORDS = {
 }
 
 
-def extract_document_fields(text: str, lines: list[str] | None = None, tables: list[dict[str, Any]] | None = None) -> ExtractedDocumentFields:
+def extract_document_fields(text: str, lines: list[str] | None = None, tables: list[dict[str, Any]] | None = None, forced_source_type: str | None = None) -> ExtractedDocumentFields:
     cleaned = clean_ocr_text(text)
     lines = normalize_ocr_lines("\n".join(lines or []) or cleaned)
-    source_type = classify_document_type(cleaned)
+    source_type = forced_source_type or classify_document_type(cleaned)
     candidates = extract_field_candidates(lines)
     fields = ExtractedDocumentFields(source_document_type=source_type, target_doctype=TARGET_MAP.get(source_type), items=extract_line_items(cleaned, lines, tables))
     bill = select_best_candidate(candidates.get("bill_no", []), "bill_no")

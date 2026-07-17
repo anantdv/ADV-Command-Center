@@ -30,7 +30,7 @@ export function CommandInput({ onSend, compact = false, initialValue = '', onOcr
     try {
       setStatus(`Uploading ${file.name}…`)
       onAttachmentMessage?.(`Uploaded ${file.name}`)
-      const uploaded = await upload.mutateAsync(file)
+      const uploaded = await upload.mutateAsync({file,sourceDocumentType:'supplier_invoice'})
       setStatus('Processing OCR intake…')
       const preview = await process.mutateAsync(uploaded.intake_id)
       setStatus('I extracted the document. Please review the draft mapping.')

@@ -13,9 +13,9 @@ class ApiClient {
 
   setBearerToken(token?: string) { this.bearerToken = token }
 
-  private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(url: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<T> {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 30_000)
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
     try {
       const response = await fetch(`${env.apiBaseUrl}${url}`, {
         ...init,
@@ -47,8 +47,8 @@ class ApiClient {
   }
 
   get<T>(url: string): Promise<T> { return this.request<T>(url) }
-  post<T>(url: string, body?: unknown): Promise<T> { return this.request<T>(url, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }) }
-  postForm<T>(url: string, formData: FormData): Promise<T> { return this.request<T>(url, { method: 'POST', body: formData }) }
+  post<T>(url: string, body?: unknown, timeoutMs?: number): Promise<T> { return this.request<T>(url, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, timeoutMs) }
+  postForm<T>(url: string, formData: FormData, timeoutMs?: number): Promise<T> { return this.request<T>(url, { method: 'POST', body: formData }, timeoutMs) }
   put<T>(url: string, body?: unknown): Promise<T> { return this.request<T>(url, { method: 'PUT', body: body === undefined ? undefined : JSON.stringify(body) }) }
   delete<T>(url: string): Promise<T> { return this.request<T>(url, { method: 'DELETE' }) }
 }

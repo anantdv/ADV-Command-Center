@@ -27,9 +27,15 @@ export function DocumentMappingPreview({preview,onConfirm,onCancel,busy=false}:{
  return <section className="max-h-[82vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-wide text-slate-400">{preview.source_document_type.replaceAll('_',' ')}</p><h3 className="text-lg font-bold text-slate-900">Create Draft {preview.target_doctype}</h3></div><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Review required</span></div>
   {warnings.length>0&&<div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-800"><p className="font-bold">Review required:</p><ul className="mt-1 list-disc space-y-1 pl-4">{warnings.map(warning=><li key={warning}>{warning}</li>)}</ul></div>}
-  <div className="mt-4"><OcrPartySelector field={partyExtraction} value={String(payload[partyField]||'')} onChange={value=>setField(partyField,value)}/></div>
-  <div className="mt-4"><OcrEditableHeaderFields payload={payload} fields={serverPreview.field_extractions} onChange={setField}/></div>
-  <div className="mt-5"><h4 className="mb-2 text-sm font-bold text-slate-800">Line items</h4><ExtractedLineItemsTable items={items} onChange={next=>setField('items',next)}/></div>
+  <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+   <div className="mb-3"><h4 className="text-sm font-bold text-slate-900">Scanned field data</h4><p className="text-xs text-slate-500">Values extracted from the uploaded document. Edit anything that looks wrong.</p></div>
+   <OcrEditableHeaderFields payload={payload} fields={serverPreview.field_extractions} onChange={setField}/>
+   <div className="mt-5"><h4 className="mb-2 text-sm font-bold text-slate-800">Scanned line items</h4><ExtractedLineItemsTable items={items} onChange={next=>setField('items',next)}/></div>
+  </div>
+  <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
+   <div className="mb-3"><h4 className="text-sm font-bold text-slate-900">ERPNext nearest matching data</h4><p className="text-xs text-slate-500">Select the correct ERPNext party and item matches if auto-match is not accurate.</p></div>
+   <OcrPartySelector field={partyExtraction} value={String(payload[partyField]||'')} onChange={value=>setField(partyField,value)}/>
+  </div>
   {serverPreview.missing_fields.length>0&&<div className="mt-4 rounded-xl bg-rose-50 p-3 text-xs text-rose-700">Missing required fields: {serverPreview.missing_fields.map(field=>String(field.label||field.fieldname)).join(', ')}</div>}
   {validation&&<div className="mt-4 rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{validation}</div>}
   {error&&<div className="mt-4 rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{error}</div>}

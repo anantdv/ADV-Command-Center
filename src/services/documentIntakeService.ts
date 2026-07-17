@@ -1,14 +1,14 @@
 import { apiClient } from './apiClient'
-import type { DocumentMappingPreview, DocumentUploadResponse, OCRResult, OcrExtractionDebug } from '../types/documentIntake'
+import type { DocumentMappingPreview, DocumentUploadResponse, OCRResult, OcrExtractionDebug, IntakeSourceDocumentType } from '../types/documentIntake'
 
-async function upload(file:File):Promise<DocumentUploadResponse>{
- const form=new FormData();form.append('file',file)
- return apiClient.postForm<DocumentUploadResponse>('/api/document-intake/upload',form)
+async function upload(file:File,sourceDocumentType:IntakeSourceDocumentType):Promise<DocumentUploadResponse>{
+ const form=new FormData();form.append('file',file);form.append('source_document_type',sourceDocumentType)
+ return apiClient.postForm<DocumentUploadResponse>('/api/document-intake/upload',form,120_000)
 }
 
 export const documentIntakeService={
  upload,
- process:(intakeId:string)=>apiClient.post<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/process`),
+ process:(intakeId:string)=>apiClient.post<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/process`,undefined,120_000),
  getOcr:(intakeId:string)=>apiClient.get<OCRResult>(`/api/document-intake/${encodeURIComponent(intakeId)}/ocr`),
  getExtractionDebug:(intakeId:string)=>apiClient.get<OcrExtractionDebug>(`/api/document-intake/${encodeURIComponent(intakeId)}/extraction-debug`),
  getMappingPreview:(intakeId:string)=>apiClient.get<DocumentMappingPreview>(`/api/document-intake/${encodeURIComponent(intakeId)}/mapping-preview`),

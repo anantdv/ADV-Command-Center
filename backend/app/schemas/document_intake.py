@@ -12,6 +12,8 @@ class DocumentUploadResponse(BaseModel):
     file_id: str
     file_name: str
     mime_type: str
+    source_document_type: UploadedDocumentType | None = None
+    target_doctype: TargetERPDocumentType | None = None
     status: Literal["uploaded", "processing", "processed", "failed"]
     message: str
 

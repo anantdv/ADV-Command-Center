@@ -19,6 +19,11 @@ from app.utils.ocr_field_extractor import extract_document_fields, extract_field
 from app.utils.ocr_line_item_extractor import extract_line_items_from_tables
 from app.utils.ocr_party_matcher import extract_likely_supplier_names_from_header
 
+DOCUMENT_ROUTE_TARGETS = {
+    "supplier_invoice": "Purchase Invoice",
+    "customer_purchase_order": "Sales Order",
+}
+
 
 class DocumentIntakeService:
     def __init__(self) -> None:
@@ -27,7 +32,9 @@ class DocumentIntakeService:
         self.mapper = DocumentMappingService()
         self.max_file_size_mb = settings.ocr_max_file_size_mb
 
-    async def upload(self, file: UploadFile, user: str = "unknown") -> DocumentUploadResponse:
+    async def upload(self, file: UploadFile, user: str = "unknown", source_document_type: str = "supplier_invoice") -> DocumentUploadResponse:
+        if source_document_type not in DOCUMENT_ROUTE_TARGETS:
+            raise AppError("Only Supplier Invoice and Customer Purchase Order intake are enabled right now.", 400, {"allowed": list(DOCUMENT_ROUTE_TARGETS)})
         content = await file.read()
         validate_upload(file.filename or "upload", file.content_type, len(content), settings.ocr_max_file_size_mb)
         await log_audit_event(AuditEvent(user=user, action="document_upload_started", tool_name="document_intake", allowed=True, risk_level="medium", input_summary=file.filename or "upload", output_summary=f"{len(content)} bytes", file_name=file.filename or "upload"))
@@ -37,10 +44,29 @@ class DocumentIntakeService:
         safe_name = Path(file.filename or "document").name
         path = directory / safe_name
         path.write_bytes(content)
-        meta = {"intake_id": intake_id, "file_id": intake_id, "file_name": safe_name, "mime_type": file.content_type or "application/octet-stream", "status": "uploaded", "path": str(path), "user": user}
+        meta = {
+            "intake_id": intake_id,
+            "file_id": intake_id,
+            "file_name": safe_name,
+            "mime_type": file.content_type or "application/octet-stream",
+            "source_document_type": source_document_type,
+            "target_doctype": DOCUMENT_ROUTE_TARGETS[source_document_type],
+            "status": "uploaded",
+            "path": str(path),
+            "user": user,
+        }
         self._write_meta(intake_id, meta)
         await log_audit_event(AuditEvent(user=user, action="document_intake_uploaded", tool_name="document_intake", allowed=True, risk_level="medium", input_summary=safe_name, output_summary=intake_id, file_id=intake_id, file_name=safe_name))
-        return DocumentUploadResponse(intake_id=intake_id, file_id=intake_id, file_name=safe_name, mime_type=meta["mime_type"], status="uploaded", message="Document uploaded. Process OCR to continue.")
+        return DocumentUploadResponse(
+            intake_id=intake_id,
+            file_id=intake_id,
+            file_name=safe_name,
+            mime_type=meta["mime_type"],
+            source_document_type=source_document_type,
+            target_doctype=DOCUMENT_ROUTE_TARGETS[source_document_type],
+            status="uploaded",
+            message="Document uploaded. Process OCR to continue.",
+        )
 
     async def process(self, intake_id: str, cookies: dict | None = None, user: str = "unknown") -> DocumentMappingPreview:
         meta = self._meta(intake_id)
@@ -51,7 +77,8 @@ class DocumentIntakeService:
         lines = ocr.lines or [line for line in ocr.extracted_text_preview.splitlines() if line.strip()]
         tables = ocr.tables or []
         field_candidates = extract_field_candidates(lines)
-        extracted = extract_document_fields(full_text, lines=lines, tables=tables)
+        extracted = extract_document_fields(full_text, lines=lines, tables=tables, forced_source_type=meta.get("source_document_type"))
+        extracted.target_doctype = meta.get("target_doctype") or extracted.target_doctype
         extraction_context = {
             "source": ocr.source,
             "full_text": full_text,

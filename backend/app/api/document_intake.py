@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from app.dependencies import CurrentUserDep, get_frappe_cookies
 from app.schemas.common import ApiResponse
@@ -15,8 +15,12 @@ async def document_intake_health() -> ApiResponse[dict]:
 
 
 @router.post("/upload", response_model=ApiResponse[DocumentUploadResponse])
-async def upload_document(user: CurrentUserDep, file: UploadFile = File(...)) -> ApiResponse[DocumentUploadResponse]:
-    return ApiResponse(data=await document_intake_service.upload(file, user.user))
+async def upload_document(
+    user: CurrentUserDep,
+    file: UploadFile = File(...),
+    source_document_type: str = Form("supplier_invoice"),
+) -> ApiResponse[DocumentUploadResponse]:
+    return ApiResponse(data=await document_intake_service.upload(file, user.user, source_document_type))
 
 
 @router.get("/{intake_id}", response_model=ApiResponse[dict])
