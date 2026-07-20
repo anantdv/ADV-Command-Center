@@ -88,7 +88,7 @@ RECORD_ID_PATTERN = re.compile(
 class IntentResult(BaseModel):
     intent: Literal[
         "list_records", "get_record", "run_report", "summary_query", "chart_query",
-        "run_analytics", "generate_chart", "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "report_composer", "blocked_write", "unsupported", "write_blocked",
+        "run_analytics", "generate_chart", "generate_file", "pin_to_dashboard", "crud_create", "crud_update", "workflow_list_pending", "workflow_get_detail", "workflow_apply_action", "report_composer", "visualize_existing_report", "regroup_existing_report", "export_existing_report", "pin_existing_report", "clarification_required", "blocked_write", "unsupported", "write_blocked",
     ]
     doctype: str | None = None
     report_name: str | None = None

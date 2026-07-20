@@ -1,3 +1,7 @@
+import logging
+from time import perf_counter
+from typing import Any
+
 from app.agents.erp_data_agent import ERPDataAgent
 from app.agents.aggregation_agent import AggregationAgent
 from app.agents.analytics_agent import AnalyticsAgent
@@ -21,9 +25,12 @@ from app.schemas.chat import (
     PermissionMeta,
     SourceMeta,
     SuggestedAction,
+    TablePart,
     TextPart,
     ToolCallPart,
+    ChartPart,
 )
+from app.schemas.aggregation import AggregationMetric, AggregationPlan
 from app.schemas.crud import CancelCrudResponse, ConfirmCrudRequest, ConfirmCrudResponse, ContinueCrudRequest
 from app.schemas.dashboard import DashboardWidgetSource, PinChatResultRequest, PinChatResultResponse
 from app.services.dashboard_service import DashboardService, dashboard_service
@@ -32,12 +39,12 @@ from app.services.suggestion_service import SuggestionService, suggestion_servic
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 from app.utils.suggestion_context_builder import SuggestionContextBuilder
+from app.utils.table_formatter import build_table_part
+from app.utils.chart_data_normalizer import normalize_chart_data
 
-READ_ONLY_FALLBACK = (
-    "I can help with ERPNext queries such as customers, suppliers, items, invoices, orders, "
-    "stock balance, receivables, payables, and general ledger. I can also prepare allowlisted "
-    "draft records or safe field updates for your confirmation."
-)
+logger = logging.getLogger(__name__)
+
+CLARIFICATION_MESSAGE = "I could not determine the requested report operation."
 
 
 class ChatService:
@@ -90,6 +97,9 @@ class ChatService:
         user: str = "unknown",
         user_roles: list[str] | None = None,
     ) -> AssistantChatResponse:
+        started = perf_counter()
+        route = "unresolved"
+        safety = SafetyResult(allowed=True, reason=None, risk_level="low")
         conversation = await self.repository.get_or_create(
             request.conversation_id,
             self._conversation_title(request.message),
@@ -104,34 +114,59 @@ class ChatService:
             )
         )
 
-        intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range)
-        intent.conversation_id = conversation.id
-        if intent.intent == "generate_file" and intent.source_type == "chat_result":
-            self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))
-        safety = await self.safety.validate(intent)
-
-        if not safety.allowed:
-            response = self._blocked_response(conversation.id, intent, safety)
-        elif intent.intent in {"workflow_list_pending", "workflow_get_detail", "workflow_apply_action"}:
-            response = await self.workflow_agent.handle(intent, cookies, user)
-        elif intent.intent == "run_report":
-            response = await self.report_agent.handle(intent, cookies)
-        elif intent.intent in {"run_analytics", "generate_chart"}:
-            response = await self.analytics_agent.handle(intent, cookies, user)
-        elif intent.intent == "generate_file":
-            response = await self.file_agent.handle(intent, cookies, user)
-        elif intent.intent in {"crud_create", "crud_update"}:
-            response = await self.crud_agent.handle(intent, cookies, user)
-        elif intent.intent == "report_composer":
-            response = await self.report_composer_agent.handle(intent, cookies, user)
-        elif intent.intent == "pin_to_dashboard":
-            response = await self._pin_intent(intent, cookies, user)
-        elif intent.aggregation and intent.aggregation.enabled and intent.query_plan:
-            response = await self.aggregation_agent.handle(intent.query_plan, cookies, user, conversation.id)
-        elif intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
-            response = await self.erp_agent.handle(intent, cookies)
+        followup = await self._resolve_report_followup(request, conversation.id)
+        if followup:
+            route = "report_followup"
+            intent = IntentResult(
+                intent=followup["intent"],
+                conversation_id=conversation.id,
+                raw_prompt=request.message,
+                confidence=1,
+                filters=followup.get("context", {}).get("filters") or {},
+                doctype=followup.get("context", {}).get("doctype"),
+                report_name=followup.get("context", {}).get("report_name"),
+            )
+            response = await self._handle_report_followup(followup, conversation.id, cookies, user)
         else:
-            response = self._unsupported_response(conversation.id, intent.missing_info_hint)
+            intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range)
+            intent.conversation_id = conversation.id
+            if intent.intent == "generate_file" and intent.source_type == "chat_result":
+                self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))
+            safety = await self.safety.validate(intent)
+
+            if not safety.allowed:
+                route = "safety_block"
+                response = self._blocked_response(conversation.id, intent, safety)
+            elif intent.intent in {"workflow_list_pending", "workflow_get_detail", "workflow_apply_action"}:
+                route = "workflow"
+                response = await self.workflow_agent.handle(intent, cookies, user)
+            elif intent.intent == "run_report":
+                route = "report"
+                response = await self.report_agent.handle(intent, cookies)
+            elif intent.intent in {"run_analytics", "generate_chart"}:
+                route = "analytics"
+                response = await self.analytics_agent.handle(intent, cookies, user)
+            elif intent.intent == "generate_file":
+                route = "file_generation"
+                response = await self.file_agent.handle(intent, cookies, user)
+            elif intent.intent in {"crud_create", "crud_update"}:
+                route = "crud_preview"
+                response = await self.crud_agent.handle(intent, cookies, user)
+            elif intent.intent == "report_composer":
+                route = "report_composer"
+                response = await self.report_composer_agent.handle(intent, cookies, user)
+            elif intent.intent == "pin_to_dashboard":
+                route = "pin"
+                response = await self._pin_intent(intent, cookies, user)
+            elif intent.aggregation and intent.aggregation.enabled and intent.query_plan:
+                route = "aggregation"
+                response = await self.aggregation_agent.handle(intent.query_plan, cookies, user, conversation.id)
+            elif intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
+                route = "erp_data"
+                response = await self.erp_agent.handle(intent, cookies)
+            else:
+                route = "clarification"
+                response = self._unsupported_response(conversation.id, intent.missing_info_hint)
 
         response.extraction = ExtractionMeta(
             method=intent.extraction_method,
@@ -143,9 +178,28 @@ class ChatService:
             erp_data_sent=False,
             fallback_used=intent.fallback_used,
         )
+        await self._remember_report_context(response, intent, request)
         await self._attach_suggestions(response, request.message, intent, cookies, user, user_roles or [])
         await self._persist_response(response)
         await self._audit(user, request.message, intent, response, safety)
+        logger.info(
+            "chat_command_executed",
+            extra={
+                "conversation_id": conversation.id,
+                "command_id": response.message_id,
+                "source": request.source or (request.structured_action or {}).get("source") or "typed",
+                "structured_action": self._safe_action_summary(request.structured_action),
+                "resolved_intent": intent.intent,
+                "active_report_id": request.active_report_id or (request.structured_action or {}).get("report_id"),
+                "active_result_id": request.active_result_id or (request.structured_action or {}).get("result_id"),
+                "filters_loaded": bool(response.source and response.source.filters),
+                "execution_route": route,
+                "erpnext_query_executed": route not in {"report_followup", "clarification"} or (followup or {}).get("requeried", False),
+                "response_type": response.intent,
+                "duration_ms": int((perf_counter() - started) * 1000),
+                "error": None,
+            },
+        )
         return response
 
     async def continue_crud(self, request: ContinueCrudRequest, cookies: dict | None = None, user: str = "unknown") -> AssistantChatResponse:
@@ -199,6 +253,323 @@ class ChatService:
         widget=await self.dashboards.pin_from_chat(request,cookies,user)
         summary=f"I pinned {widget.title} to Overview. Its data will refresh through your current ERPNext permissions."
         return AssistantChatResponse(conversation_id=request.conversation_id,message_id=message_id,intent="pin_to_dashboard",parts=[TextPart(content=summary),ToolCallPart(tool_name="pin_to_dashboard",status="success",input_summary=source_name,output_summary=f"Widget {widget.widget_id} created")],source=SourceMeta(source_type=source_type,source_name=source_name,filters=intent.filters or {},doctype=intent.doctype,report_name=intent.report_name,fields=intent.fields),permission=PermissionMeta(allowed=True,risk_level="medium"),suggested_actions=[SuggestedAction(label="Open Overview",action_type="open_overview")],id=message_id,content=summary,created_at=utc_now())
+
+    async def _resolve_report_followup(self, request: ChatMessageRequest, conversation_id: str) -> dict[str, Any] | None:
+        action = request.structured_action or {}
+        text = request.message.lower()
+        has_structured_transform = action.get("action") == "transform_report" or action.get("action_type") == "transform_report"
+        has_followup_language = any(
+            phrase in text
+            for phrase in (
+                "this result",
+                "same filters",
+                "show as chart",
+                "as a chart",
+                "summarize it",
+                "summarize this",
+                "group it",
+                "group by",
+                "monthly trend",
+                "drill down",
+                "show details",
+                "show source rows",
+                "export it",
+                "pin report",
+                "pin to overview",
+            )
+        )
+        if not has_structured_transform and not has_followup_language:
+            return None
+        result_id = str(action.get("result_id") or request.active_result_id or "") or None
+        report_id = str(action.get("report_id") or request.active_report_id or "") or None
+        context = await self.repository.get_result_context(conversation_id, result_id=result_id, report_id=report_id)
+        if not context:
+            context = await self.repository.get_latest_result_context(conversation_id)
+        if not context:
+            context = await self._result_context_from_messages(conversation_id, result_id)
+        if not context:
+            return {
+                "intent": "clarification_required",
+                "operation": "clarify",
+                "context": {},
+                "reason": "No active report result is available for this follow-up.",
+            }
+        operation = str(action.get("operation") or "").lower()
+        if not operation:
+            if "chart" in text or "visual" in text or "summarize" in text:
+                operation = "visualize"
+            elif "group by customer" in text or "customer" in text and "group" in text:
+                operation = "regroup"
+                action["group_by"] = "customer"
+            elif "monthly" in text or "month" in text:
+                operation = "regroup"
+                action["group_by"] = "month"
+            elif "export" in text or "pdf" in text or "excel" in text:
+                operation = "export"
+            elif "pin" in text:
+                operation = "pin"
+            else:
+                operation = "clarify"
+        intent = {
+            "visualize": "visualize_existing_report",
+            "regroup": "regroup_existing_report",
+            "export": "export_existing_report",
+            "pin": "pin_existing_report",
+        }.get(operation, "clarification_required")
+        return {"intent": intent, "operation": operation, "action": action, "context": context}
+
+    async def _result_context_from_messages(self, conversation_id: str, result_id: str | None = None) -> dict[str, Any] | None:
+        messages = await self.repository.get_messages(conversation_id)
+        for message in reversed(messages):
+            if message.role != "assistant":
+                continue
+            table = next((part for part in message.parts if part.get("type") == "table"), None)
+            chart = next((part for part in message.parts if part.get("type") == "chart"), None)
+            if not table and not chart:
+                continue
+            candidate_id = (chart or {}).get("result_id") or (chart or {}).get("resultId") or (table or {}).get("result_id") or (table or {}).get("resultId")
+            if result_id and candidate_id and result_id != candidate_id:
+                continue
+            rows = (table or {}).get("rows") or (chart or {}).get("data") or []
+            source = message.source
+            columns = [column.get("key") for column in (table or {}).get("columns", []) if column.get("key")]
+            if not columns and rows:
+                columns = list(rows[0].keys())
+            return {
+                "report_id": ((chart or {}).get("config") or (table or {}).get("config") or {}).get("report_id") or new_id("report"),
+                "result_id": candidate_id or new_id("res"),
+                "conversation_id": conversation_id,
+                "message_id": message.id,
+                "intent": message.intent,
+                "doctype": source.doctype if source else None,
+                "report_name": source.report_name if source else None,
+                "source_type": source.source_type if source else None,
+                "source_name": source.source_name if source else None,
+                "title": (chart or {}).get("title") or (table or {}).get("title") or message.content[:80],
+                "columns": columns,
+                "filters": source.filters if source and source.filters else {},
+                "rows": rows,
+                "chart": chart,
+                "row_count": source.record_count if source and source.record_count is not None else len(rows),
+                "created_at": message.created_at.isoformat(),
+            }
+        return None
+
+    async def _handle_report_followup(self, followup: dict[str, Any], conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse:
+        if followup["intent"] == "visualize_existing_report":
+            return self._visualize_existing_report(conversation_id, followup["context"], followup.get("action") or {})
+        if followup["intent"] == "regroup_existing_report":
+            return await self._regroup_existing_report(conversation_id, followup["context"], followup.get("action") or {}, cookies, user)
+        return self._unsupported_response(conversation_id, followup.get("reason"))
+
+    def _visualize_existing_report(self, conversation_id: str, context: dict[str, Any], action: dict[str, Any]) -> AssistantChatResponse:
+        rows = list(context.get("rows") or [])
+        chart = self._chart_from_result_context(context, rows, action)
+        message_id = new_id("msg")
+        summary = f"Here is {chart.title.lower()} using the same filters."
+        return AssistantChatResponse(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            intent="chart_result",
+            parts=[
+                TextPart(content=summary),
+                ToolCallPart(tool_name="transform_report", status="success", input_summary=context.get("title") or context.get("source_name"), output_summary=f"{len(chart.data)} chart points"),
+                chart,
+            ],
+            source=SourceMeta(
+                source_type="doctype" if context.get("doctype") else "report",
+                source_name=context.get("source_name") or context.get("doctype") or context.get("report_name") or "Report",
+                record_count=len(chart.data),
+                filters=context.get("filters") or {},
+                doctype=context.get("doctype"),
+                report_name=context.get("report_name"),
+                fields=context.get("columns") or [],
+            ),
+            permission=PermissionMeta(allowed=True, risk_level="low"),
+            suggested_actions=self._result_actions(chart.result_id, context),
+            id=message_id,
+            content=summary,
+            created_at=utc_now(),
+        )
+
+    async def _regroup_existing_report(self, conversation_id: str, context: dict[str, Any], action: dict[str, Any], cookies: dict | None, user: str) -> AssistantChatResponse:
+        group_by = str(action.get("group_by") or "").lower()
+        doctype = context.get("doctype") or context.get("source_name")
+        if not doctype:
+            return self._unsupported_response(conversation_id, "I understood that you want to regroup the report, but I could not find the source DocType.")
+        if group_by in {"customer", "supplier"}:
+            metrics = [AggregationMetric(field="grand_total", function="sum")]
+            if any("outstanding_amount" in row for row in context.get("rows") or []):
+                metrics.append(AggregationMetric(field="outstanding_amount", function="sum"))
+            plan = AggregationPlan(
+                enabled=True,
+                source_name=str(doctype),
+                filters=context.get("filters") or {},
+                fields=[group_by],
+                group_by=[group_by],
+                metrics=metrics,
+                chart_type="bar",
+                chart_title=f"{doctype} by {group_by.title()}",
+                limit=50,
+            )
+        elif group_by in {"month", "monthly"}:
+            plan = AggregationPlan(
+                enabled=True,
+                source_name=str(doctype),
+                filters=context.get("filters") or {},
+                fields=["posting_date"],
+                group_by=[],
+                metrics=[AggregationMetric(field="grand_total", function="sum")],
+                time_field="posting_date",
+                time_grain="month",
+                chart_type="bar",
+                chart_title=f"Monthly {doctype} Trend",
+                limit=24,
+            )
+        else:
+            return self._unsupported_response(conversation_id, "I understood that you want to regroup the report, but I need a supported grouping such as customer or month.")
+        result = await self.aggregation_agent.service.run_aggregation(plan, cookies, user, conversation_id)
+        result_id = new_id("res")
+        chart = normalize_chart_data(result.chart or {})
+        message_id = new_id("msg")
+        title = result.plan.chart_title or f"{doctype} Summary"
+        parts: list = [
+            TextPart(content=result.summary),
+            ToolCallPart(tool_name="transform_report", status="success", input_summary=f"group_by={group_by}", output_summary=f"{len(result.rows)} grouped rows"),
+            build_table_part(title, result.rows, result_id=result_id, config={"report_id": context.get("report_id"), "filters": result.source.get("filters") or {}, "group_by": group_by}),
+        ]
+        if chart:
+            parts.append(ChartPart(result_id=result_id, source_type="analytics", source_name=str(doctype), title=chart.get("title") or title, chart_type=self._safe_chart_type(chart.get("chart_type") or "bar"), data=chart.get("data") or result.rows, x_key=chart.get("x_key") or "period", y_key=chart.get("y_key") or "grand_total_sum", config={"report_id": context.get("report_id"), "filters": result.source.get("filters") or {}, "group_by": group_by}, available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters"]))
+        return AssistantChatResponse(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            intent="report_result",
+            parts=parts,
+            source=SourceMeta(source_type="doctype", source_name=str(doctype), record_count=len(result.rows), filters=result.source.get("filters") or {}, doctype=str(doctype)),
+            permission=PermissionMeta.model_validate(result.permission or {"allowed": True, "risk_level": "low"}),
+            suggested_actions=self._result_actions(result_id, context),
+            id=message_id,
+            content=result.summary,
+            created_at=utc_now(),
+        )
+
+    def _chart_from_result_context(self, context: dict[str, Any], rows: list[dict[str, Any]], action: dict[str, Any]) -> ChartPart:
+        existing_chart = dict(context.get("chart") or {})
+        if existing_chart.get("data"):
+            chart = normalize_chart_data({**existing_chart, "chart_type": action.get("chart_type") or existing_chart.get("chart_type") or existing_chart.get("type") or "bar"})
+            return ChartPart(
+                result_id=new_id("res"),
+                source_type="analytics",
+                source_name=context.get("source_name"),
+                title=chart.get("title") or context.get("title") or "Report Chart",
+                chart_type=self._safe_chart_type(chart.get("chart_type") or "bar"),
+                data=chart.get("data") or [],
+                x_key=chart.get("x_key") or chart.get("name_key") or self._first_dimension(rows),
+                y_key=chart.get("y_key") or chart.get("value_key") or self._first_metric(rows),
+                config={**(chart.get("config") or {}), "report_id": context.get("report_id"), "parent_result_id": context.get("result_id"), "filters": context.get("filters") or {}},
+                available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters"],
+            )
+        x_key = self._first_dimension(rows) or "period"
+        y_key = self._first_metric(rows) or "value"
+        chart_type = "line" if self._looks_temporal(rows, x_key) else "bar"
+        chart = normalize_chart_data({"chart_type": chart_type, "title": context.get("title") or context.get("source_name") or "Report Chart", "x_key": x_key, "y_key": y_key, "data": rows})
+        return ChartPart(
+            result_id=new_id("res"),
+            source_type="analytics",
+            source_name=context.get("source_name"),
+            title=chart.get("title") or "Report Chart",
+            chart_type=self._safe_chart_type(chart.get("chart_type") or chart_type),
+            data=chart.get("data") or [],
+            x_key=x_key,
+            y_key=y_key,
+            config={"report_id": context.get("report_id"), "parent_result_id": context.get("result_id"), "filters": context.get("filters") or {}},
+            available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters"],
+        )
+
+    async def _remember_report_context(self, response: AssistantChatResponse, intent: IntentResult, request: ChatMessageRequest) -> None:
+        table = next((part for part in response.parts if isinstance(part, TablePart)), None)
+        chart = next((part for part in response.parts if isinstance(part, ChartPart)), None)
+        if not table and not chart:
+            return
+        result_id = (chart.result_id if chart else None) or (table.result_id if table else None) or new_id("res")
+        report_id = None
+        if chart and chart.config.get("report_id"):
+            report_id = str(chart.config["report_id"])
+        elif table and table.config.get("report_id"):
+            report_id = str(table.config["report_id"])
+        report_id = report_id or new_id("report")
+        if table and not table.result_id:
+            table.result_id = result_id
+        if chart and not chart.result_id:
+            chart.result_id = result_id
+        if table:
+            table.config = {**table.config, "report_id": report_id, "result_id": result_id}
+        if chart:
+            chart.config = {**chart.config, "report_id": report_id, "result_id": result_id}
+        rows = list((table.rows if table else None) or (chart.data if chart else []) or [])
+        context = {
+            "report_id": report_id,
+            "result_id": result_id,
+            "conversation_id": response.conversation_id,
+            "message_id": response.message_id,
+            "intent": response.intent,
+            "analytics_key": (chart.config or {}).get("analytics_key") if chart else getattr(intent, "analytics_key", None),
+            "doctype": response.source.doctype if response.source else intent.doctype,
+            "report_name": response.source.report_name if response.source else intent.report_name,
+            "source_type": response.source.source_type if response.source else None,
+            "source_name": response.source.source_name if response.source else (intent.doctype or intent.report_name),
+            "title": (chart.title if chart else None) or (table.title if table else None) or response.content[:80],
+            "columns": [column.key for column in table.columns] if table else list(rows[0].keys()) if rows else [],
+            "filters": (response.source.filters if response.source and response.source.filters else None) or request.current_filters or {},
+            "rows": rows,
+            "chart": chart.model_dump(mode="json") if chart else None,
+            "row_count": response.source.record_count if response.source and response.source.record_count is not None else len(rows),
+            "created_at": utc_now().isoformat(),
+        }
+        await self.repository.save_result_context(response.conversation_id, context)
+
+    @staticmethod
+    def _result_actions(result_id: str | None, context: dict[str, Any]) -> list[SuggestedAction]:
+        payload = {
+            "action": "transform_report",
+            "report_id": context.get("report_id"),
+            "result_id": result_id or context.get("result_id"),
+            "preserve_filters": True,
+            "preserve_grouping": True,
+            "source": "generated_action",
+        }
+        return [
+            SuggestedAction(label="Export Excel", action_type="export_excel", payload={**payload, "file_format": "xlsx"}),
+            SuggestedAction(label="Generate PDF", action_type="generate_pdf", payload={**payload, "file_format": "pdf"}),
+            SuggestedAction(label="Pin to Overview", action_type="pin_to_overview", payload=payload),
+            SuggestedAction(label="Refine Filters", action_type="refine_filters", payload=payload),
+        ]
+
+    @staticmethod
+    def _first_dimension(rows: list[dict[str, Any]]) -> str | None:
+        if not rows:
+            return None
+        preferred = ("period", "month", "posting_date", "transaction_date", "customer", "supplier", "status")
+        keys = list(rows[0].keys())
+        return next((key for key in preferred if key in keys), next((key for key in keys if not isinstance(rows[0].get(key), (int, float))), None))
+
+    @staticmethod
+    def _first_metric(rows: list[dict[str, Any]]) -> str | None:
+        if not rows:
+            return None
+        preferred = ("grand_total_sum", "sales_total", "purchase_total", "outstanding_amount_sum", "amount", "value")
+        keys = list(rows[0].keys())
+        return next((key for key in preferred if key in keys), next((key for key in keys if isinstance(rows[0].get(key), (int, float)) and not isinstance(rows[0].get(key), bool)), None))
+
+    @staticmethod
+    def _looks_temporal(rows: list[dict[str, Any]], x_key: str | None) -> bool:
+        if not rows or not x_key:
+            return False
+        return x_key in {"period", "month", "posting_date", "transaction_date"} or any("-" in str(row.get(x_key, "")) for row in rows[:3])
+
+    @staticmethod
+    def _safe_chart_type(value: str) -> str:
+        return value if value in {"bar", "line", "pie", "donut", "area"} else "bar"
 
     async def _persist_response(self, response: AssistantChatResponse) -> None:
         await self.repository.save_message(
@@ -318,16 +689,16 @@ class ChatService:
     @staticmethod
     def _unsupported_response(conversation_id: str, message: str | None = None) -> AssistantChatResponse:
         message_id = new_id("msg")
-        content = message or READ_ONLY_FALLBACK
+        content = message or CLARIFICATION_MESSAGE
         return AssistantChatResponse(
             conversation_id=conversation_id,
             message_id=message_id,
-            intent="unsupported",
+            intent="clarification_required",
             parts=[TextPart(content=content)],
             suggested_actions=[
-                SuggestedAction(label="Show customers", action_type="prompt", reason="show customers"),
-                SuggestedAction(label="Show sales invoices", action_type="prompt", reason="show sales invoices"),
-                SuggestedAction(label="Show stock balance", action_type="prompt", reason="show stock balance"),
+                SuggestedAction(label="Show this result as a bar chart", action_type="prompt", reason="Show this result as a bar chart"),
+                SuggestedAction(label="Group this report by customer", action_type="prompt", reason="Group this report by customer"),
+                SuggestedAction(label="Show the underlying invoices", action_type="prompt", reason="Show the underlying invoices"),
             ],
             id=message_id,
             content=content,
@@ -365,6 +736,13 @@ class ChatService:
                 intent.source_name = message.source.source_name if message.source else "Previous chat result"
                 intent.filters = message.source.filters if message.source else {}
                 return
+
+    @staticmethod
+    def _safe_action_summary(action: dict[str, Any] | None) -> dict[str, Any]:
+        if not action:
+            return {}
+        allowed = {"action", "action_type", "operation", "visualization", "group_by", "report_id", "result_id", "preserve_filters", "preserve_grouping", "source", "file_format"}
+        return {key: value for key, value in action.items() if key in allowed}
 
 
 chat_service = ChatService()

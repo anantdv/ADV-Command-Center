@@ -34,10 +34,13 @@ export type ToolCallPart = {
 }
 export type TablePart = {
   type: 'table'
+  result_id?: string | null
+  resultId?: string | null
   title: string
   columns: TableColumn[]
   rows: Array<Record<string, unknown>>
   total_rows?: number | null
+  config?: Record<string, unknown>
   row_action?: { type?: string; endpoint?: string } | null
 }
 export type ChartPart = {
@@ -108,6 +111,7 @@ export type SuggestedAction = {
   action_type: string
   disabled: boolean
   reason?: string | null
+  payload?: Record<string, unknown>
 }
 export type ExtractionMeta = { method: 'vertex_gemini' | 'rules'; confidence?: number | null; provider?: string | null; model?: string | null; privacy_checked?: boolean; privacy_allowed?: boolean; erp_data_sent?: boolean; fallback_used?: boolean }
 
@@ -144,7 +148,22 @@ export interface AssistantChatResponse {
 
 export interface Conversation { id: string; title: string; createdAt: string; updatedAt: string }
 export interface CreateConversationRequest { title?: string }
-export interface SendChatMessageRequest { conversation_id?: string; message: string; module_context?: string; company?: string; date_range?: { from_date: string; to_date: string }; dateRange?: AppDateRange }
+export interface SendChatMessageRequest {
+  conversation_id?: string
+  message: string
+  module_context?: string
+  company?: string
+  date_range?: { from_date: string; to_date: string }
+  dateRange?: AppDateRange
+  source?: string
+  parent_message_id?: string
+  active_report_id?: string
+  active_result_id?: string
+  current_filters?: Record<string, unknown>
+  selected_rows?: Array<Record<string, unknown>>
+  requested_output?: string
+  structured_action?: Record<string, unknown>
+}
 export interface ChatActionResponse { actionId: string; status: 'confirmed' | 'cancelled' }
 export type Invoice = { id: string; customer: string; due: string; days: number; amount: string; risk: string }
 export type CommandCenterData = { invoices: Invoice[] }

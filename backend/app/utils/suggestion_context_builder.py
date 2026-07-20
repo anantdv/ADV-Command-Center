@@ -35,6 +35,16 @@ class SuggestionContextBuilder:
         extra: dict[str, Any] = {}
         if chart and chart.result_id:
             extra["result_id"] = chart.result_id
+        elif table and table.result_id:
+            extra["result_id"] = table.result_id
+        if table and table.config:
+            extra["table_config"] = table.config
+            if table.config.get("report_id"):
+                extra["report_id"] = table.config.get("report_id")
+        if chart and chart.config:
+            extra["chart_config"] = chart.config
+            if chart.config.get("report_id"):
+                extra["report_id"] = chart.config.get("report_id")
         if confirmation:
             extra["confirmation_id"] = confirmation.confirmation_id
         if file_part:

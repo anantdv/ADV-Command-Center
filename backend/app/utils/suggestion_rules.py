@@ -45,12 +45,13 @@ def get_suggestions_for_context(ctx: SuggestionContext) -> list[SuggestedPrompt]
 def _general_table_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
     result_id = _result_id(ctx)
     missing = None if result_id else "This action needs a saved result context."
+    transform_payload = _transform_payload(ctx, result_id)
     return [
         SuggestedPrompt(id=_id("export", "xlsx"), label="Export to Excel", type="export", action_type="export_result", payload={"result_id": result_id, "format": "xlsx", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-spreadsheet", disabled=not result_id, disabled_reason=missing, group="share"),
         SuggestedPrompt(id=_id("export", "pdf"), label="Export to PDF", type="export", action_type="export_result", payload={"result_id": result_id, "format": "pdf", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="file-down", disabled=not result_id, disabled_reason=missing, group="share"),
         SuggestedPrompt(id=_id("pin", "overview"), label="Pin to Overview", type="pin", action_type="pin_to_dashboard", payload={"result_id": result_id, "target_type": "overview", "conversation_id": ctx.conversation_id, "message_id": ctx.message_id}, icon="pin", disabled=not result_id, disabled_reason=missing, group="share"),
         SuggestedPrompt(id=_id("ui", "change_columns"), label="Change Columns", type="ui_action", action_type="open_column_selector_dialog", payload={"result_id": result_id, "columns": ctx.columns}, icon="columns", disabled=not result_id, disabled_reason=missing, group="view"),
-        _prompt("Summarize as Chart", _same("Summarize this result as a chart", ctx), "summarize_chart", group="view"),
+        SuggestedPrompt(id=_id("action", "summarize_chart"), label="Summarize as Chart", type="action", prompt=_same("Summarize this result as a chart", ctx), action_type="transform_report", payload={**transform_payload, "operation": "visualize", "visualization": "auto", "preserve_grouping": True}, disabled=not result_id, disabled_reason=missing, group="view"),
     ]
 
 
@@ -58,11 +59,11 @@ def _doctype_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
     doctype = ctx.doctype or ctx.source_name
     if doctype == "Sales Invoice":
         suggestions = [
-            _prompt("Group by Customer", _same("Group these sales invoices by customer with total amount and outstanding amount", ctx), "group_customer", group="analysis"),
+            SuggestedPrompt(id=_id("action", "group_customer"), label="Group by Customer", type="action", prompt=_same("Group these sales invoices by customer with total amount and outstanding amount", ctx), action_type="transform_report", payload={**_transform_payload(ctx, _result_id(ctx)), "operation": "regroup", "group_by": "customer"}, group="analysis", disabled=not _result_id(ctx), disabled_reason=None if _result_id(ctx) else "This action needs a saved result context."),
             _prompt("Show Aging", "Show receivables aging for these sales invoices", "show_aging", group="analysis"),
             _prompt("Show Only Overdue", _same("Show only overdue sales invoices for the same period", ctx), "only_overdue", group="analysis"),
             _prompt("Customer-wise Outstanding", _same("Show customer-wise outstanding for these sales invoices", ctx), "customer_outstanding", group="analysis"),
-            _prompt("Monthly Trend", _same("Show monthly sales invoice trend for the same period", ctx), "monthly_trend", group="analysis"),
+            SuggestedPrompt(id=_id("action", "monthly_trend"), label="Monthly Trend", type="action", prompt=_same("Show monthly sales invoice trend for the same period", ctx), action_type="transform_report", payload={**_transform_payload(ctx, _result_id(ctx)), "operation": "regroup", "group_by": "month"}, group="analysis", disabled=not _result_id(ctx), disabled_reason=None if _result_id(ctx) else "This action needs a saved result context."),
         ]
         if _status_is(ctx, {"unpaid", "overdue"}):
             suggestions.append(_prompt("Collection Follow-up Draft", "Create collection follow-up drafts for these overdue invoices", "collection_followup", disabled=True, disabled_reason="Email drafting for collections is not enabled yet.", risk="medium", group="draft"))
@@ -113,6 +114,24 @@ def _analytics_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
         suggestions.append(SuggestedPrompt(id=_id("action", "line_chart"), label="Convert to Line Chart", type="action", action_type="convert_chart_type", payload={**base_payload, "chart_type": "line"}, disabled=not result_id, disabled_reason=missing, group="view"))
     suggestions.append(_prompt("Monthly Trend", "show monthly trend for this report", "monthly_trend", group="analysis"))
     return suggestions
+
+
+def _transform_payload(ctx: SuggestionContext, result_id: str | None) -> dict:
+    return {
+        "action": "transform_report",
+        "report_id": ctx.extra.get("report_id"),
+        "result_id": result_id,
+        "source_type": ctx.source_type,
+        "source_name": ctx.source_name,
+        "doctype": ctx.doctype,
+        "report_name": ctx.report_name,
+        "filters": ctx.filters,
+        "columns": ctx.columns,
+        "preserve_filters": True,
+        "conversation_id": ctx.conversation_id,
+        "message_id": ctx.message_id,
+        "source": "generated_action",
+    }
 
 
 def _prompt(label: str, prompt: str, key: str, *, disabled: bool = False, disabled_reason: str | None = None, risk: str = "low", group: str | None = None) -> SuggestedPrompt:

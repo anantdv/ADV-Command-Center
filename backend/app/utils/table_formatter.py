@@ -8,6 +8,8 @@ def build_table_part(
     rows: list[dict[str, Any]],
     max_rows: int = 20,
     doctype: str | None = None,
+    result_id: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> TablePart:
     preview = [_with_row_meta(row, doctype) for row in rows[:max_rows]]
     keys: list[str] = []
@@ -22,10 +24,12 @@ def build_table_part(
         for key in keys
     ]
     return TablePart(
+        result_id=result_id,
         title=title,
         columns=columns,
         rows=preview,
         total_rows=len(rows),
+        config=config or {},
         row_action={"type": "open_detail", "endpoint": "/api/erpnext/documents/{doctype}/{name}"} if _has_clickable_rows(preview) else None,
     )
 

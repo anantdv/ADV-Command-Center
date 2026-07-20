@@ -19,6 +19,7 @@ class InMemoryConversationRepository:
         self.conversations: dict[str, Conversation] = {initial.id: initial}
         self.messages: dict[str, list[ChatMessage]] = {initial.id: []}
         self.tool_calls: list[dict[str, Any]] = []
+        self.result_contexts: dict[str, list[dict[str, Any]]] = {}
 
     async def list_conversations(self) -> list[Conversation]:
         return sorted(self.conversations.values(), key=lambda item: item.updated_at, reverse=True)
@@ -55,3 +56,27 @@ class InMemoryConversationRepository:
     async def save_tool_call(self, tool_call: dict[str, Any]) -> None:
         self.tool_calls.append(tool_call)
         # TODO: Replace with an AIToolCall SQLAlchemy repository transaction.
+
+    async def save_result_context(self, conversation_id: str, context: dict[str, Any]) -> None:
+        self.result_contexts.setdefault(conversation_id, []).append(context)
+        # TODO: Replace with an AIReportResult SQLAlchemy repository transaction.
+
+    async def get_latest_result_context(self, conversation_id: str) -> dict[str, Any] | None:
+        contexts = self.result_contexts.get(conversation_id) or []
+        return contexts[-1] if contexts else None
+
+    async def get_result_context(
+        self,
+        conversation_id: str,
+        result_id: str | None = None,
+        report_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        contexts = self.result_contexts.get(conversation_id) or []
+        if not result_id and not report_id:
+            return contexts[-1] if contexts else None
+        for context in reversed(contexts):
+            if result_id and context.get("result_id") == result_id:
+                return context
+            if report_id and context.get("report_id") == report_id:
+                return context
+        return None

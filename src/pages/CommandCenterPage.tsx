@@ -25,6 +25,26 @@ import type { DashboardWidgetSource } from '../types/dashboard'
 import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
 
+type CommandSource = 'typed' | 'voice' | 'generated_action' | 'suggested_prompt' | 'table_row' | 'retry' | 'overview'
+type ActiveReportContext = {
+  reportId?: string
+  resultId?: string
+  filters?: Record<string, unknown>
+  source?: SourceMeta | null
+  parentMessageId?: string
+}
+type CommandExecution = {
+  text: string
+  source: CommandSource
+  structuredAction?: Record<string, unknown>
+  parentMessageId?: string
+  activeReportId?: string
+  activeResultId?: string
+  currentFilters?: Record<string, unknown>
+  requestedOutput?: string
+  selectedRows?: Array<Record<string, unknown>>
+}
+
 const prompts = [
   'Show customers',
   'Show sales invoices',
@@ -62,18 +82,41 @@ export function CommandCenterPage() {
   },[conversations.data,newChat,selectedId])
 
   const history=messages.data||[]
+  const activeReportContext=getActiveReportContext(history,transientResponse)
   const historyHasUser=Boolean(optimisticUser&&history.some(message=>message.role==='user'&&message.content===optimisticUser))
   const historyHasResponse=Boolean(transientResponse&&history.some(message=>message.id===transientResponse.message_id))
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'})},[history.length,optimisticUser,transientResponse,sendMessage.isPending])
 
-  const send=(text:string)=>{
+  const executeCommand=(command:CommandExecution)=>{
     if(sendMessage.isPending)return
+    const text=command.text
+    const context=activeReportContext
+    const structuredAction={...(command.structuredAction||{})}
+    const activeReportId=command.activeReportId||String(structuredAction.report_id||structuredAction.reportId||context?.reportId||'')||undefined
+    const activeResultId=command.activeResultId||String(structuredAction.result_id||structuredAction.resultId||context?.resultId||'')||undefined
+    if(activeReportId&&!structuredAction.report_id)structuredAction.report_id=activeReportId
+    if(activeResultId&&!structuredAction.result_id)structuredAction.result_id=activeResultId
+    if(command.source==='generated_action'&&!structuredAction.source)structuredAction.source='generated_action'
     setOptimisticUser(text)
     setTransientResponse(null)
-    sendMessage.mutate({conversation_id:newChat?undefined:selectedId,message:text,module_context:moduleContext,date_range:{from_date:dateRange.from,to_date:dateRange.to}},{
+    sendMessage.mutate({
+      conversation_id:newChat?undefined:selectedId,
+      message:text,
+      module_context:moduleContext,
+      date_range:{from_date:dateRange.from,to_date:dateRange.to},
+      source:command.source,
+      parent_message_id:command.parentMessageId||context?.parentMessageId,
+      active_report_id:activeReportId,
+      active_result_id:activeResultId,
+      current_filters:command.currentFilters||context?.filters,
+      selected_rows:command.selectedRows,
+      requested_output:command.requestedOutput,
+      structured_action:Object.keys(structuredAction).length?structuredAction:undefined,
+    },{
       onSuccess:response=>{setSelectedId(response.conversation_id);setNewChat(false);setTransientResponse(response)},
     })
   }
+  const send=(text:string)=>executeCommand({text,source:'typed'})
   useEffect(()=>{
     if(autoRun&&promptParam&&!autoRunHandledRef.current){
       autoRunHandledRef.current=true
@@ -90,17 +133,17 @@ export function CommandCenterPage() {
       if(moduleSlug){navigate(`/modules/${moduleSlug}`);return}
     }
     if(action.action_type==='view_related'){
-      send(`show related records for ${source?.doctype||source?.source_name||'this result'}`)
+      executeCommand({text:`show related records for ${source?.doctype||source?.source_name||'this result'}`,source:'generated_action',structuredAction:action.payload})
       return
     }
     if(action.action_type==='refine_filters'){
-      send(`refine filters for ${source?.source_name||'this result'}`)
+      executeCommand({text:`refine filters for ${source?.source_name||'this result'}`,source:'generated_action',structuredAction:action.payload})
       return
     }
     const format:Record<string,string>={generate_pdf:'pdf',export_excel:'excel',export_csv:'csv'}
     if(format[action.action_type]){
       const overdue=source?.filters&&source.filters.status==='Overdue'?'overdue ':''
-      send(`generate ${format[action.action_type]} for ${overdue}${source?.source_name||'this result'}`)
+      executeCommand({text:`generate ${format[action.action_type]} for ${overdue}${source?.source_name||'this result'}`,source:'generated_action',structuredAction:{...(action.payload||{}),action:'export_report',file_format:format[action.action_type],preserve_filters:true}})
     }
   }
   const runSuggestion=(suggestion:SuggestedPrompt,source?:SourceMeta|null)=>{
@@ -115,10 +158,14 @@ export function CommandCenterPage() {
       openUiAction('open_chart_type_dialog',payload)
       return
     }
-    if(suggestion.type==='prompt'&&suggestion.prompt){send(suggestion.prompt);return}
+    if(suggestion.type==='action'&&actionType==='transform_report'){
+      executeCommand({text:suggestion.prompt||suggestion.label,source:'generated_action',structuredAction:payload,requestedOutput:String(payload.operation||'')})
+      return
+    }
+    if(suggestion.type==='prompt'&&suggestion.prompt){executeCommand({text:suggestion.prompt,source:'suggested_prompt'});return}
     if(suggestion.type==='export'){
       const format=String(payload.format||'xlsx')
-      send(`export this result to ${format}`)
+      executeCommand({text:`export this result to ${format}`,source:'generated_action',structuredAction:{...payload,action:'export_report',operation:'export',file_format:format,preserve_filters:true}})
       return
     }
     if(suggestion.type==='pin'){
@@ -142,15 +189,15 @@ export function CommandCenterPage() {
       const action=String(payload.action||suggestion.label)
       const doctype=String(payload.doctype||source?.doctype||source?.source_name||'document')
       const name=String(payload.name||payload.recordName||'')
-      send(`${action} ${doctype} ${name}`.trim())
+      executeCommand({text:`${action} ${doctype} ${name}`.trim(),source:'generated_action',structuredAction:payload})
       return
     }
     if(suggestion.type==='crud_confirmation'){
       // Confirmation cards remain the canonical UX. This prompt keeps the action in the safe chat path.
-      send(`${suggestion.label} for the current draft`)
+      executeCommand({text:`${suggestion.label} for the current draft`,source:'generated_action',structuredAction:payload})
       return
     }
-    if(suggestion.prompt)send(suggestion.prompt)
+    if(suggestion.prompt)executeCommand({text:suggestion.prompt,source:'generated_action',structuredAction:payload})
   }
   const openUiAction=(actionType:string,payload:Record<string,unknown>)=>{
     const dialogMap:Record<string,string>={
@@ -165,7 +212,7 @@ export function CommandCenterPage() {
   const runRowClick=(row:Record<string,unknown>)=>{
     const meta=row._meta as {doctype?:string;name?:string;clickable?:boolean}|undefined
     if(!meta?.clickable||!meta.doctype||!meta.name)return
-    send(`show detail for ${meta.doctype} ${meta.name}`)
+    executeCommand({text:`show detail for ${meta.doctype} ${meta.name}`,source:'table_row'})
   }
   const startNew=()=>{setNewChat(true);setSelectedId(undefined);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
   const selectConversation=(id:string)=>{setSelectedId(id);setNewChat(false);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
@@ -215,6 +262,37 @@ function moduleForSource(source?:SourceMeta|null){
   if(/Project|Task/i.test(name))return 'projects'
   if(/Issue|Support/i.test(name))return 'support'
   return null
+}
+
+function getActiveReportContext(history:ChatMessage[],transient?:AssistantChatResponse|null):ActiveReportContext|null{
+  const candidates:Array<ChatMessage|AssistantChatResponse>=[...(history||[]),...(transient?[transient]:[])]
+  for(let index=candidates.length-1;index>=0;index-=1){
+    const item=candidates[index]
+    if('role' in item&&item.role!=='assistant')continue
+    const parts=('parts' in item&&Array.isArray(item.parts)?item.parts:[])||[]
+    const chart=parts.find(part=>part.type==='chart')
+    const table=parts.find(part=>part.type==='table')
+    const chartConfig=chart&&chart.type==='chart'?chart.config||{}:{}
+    const tableConfig=table&&table.type==='table'?table.config||{}:{}
+    const resultId=stringValue(
+      (chart&&chart.type==='chart'&&(chart.result_id||chart.resultId))||
+      (table&&table.type==='table'&&(table.result_id||table.resultId))||
+      chartConfig.result_id||
+      tableConfig.result_id
+    )
+    const reportId=stringValue(chartConfig.report_id||tableConfig.report_id)
+    if(!resultId&&!reportId)continue
+    const source=('source' in item?item.source:null)||null
+    const parentMessageId='message_id' in item?item.message_id:item.id
+    return {resultId,reportId,source,filters:source?.filters||undefined,parentMessageId}
+  }
+  return null
+}
+
+function stringValue(value:unknown):string|undefined{
+  if(value===null||value===undefined)return undefined
+  const text=String(value).trim()
+  return text||undefined
 }
 
 function localAssistantError(message:string):AssistantChatResponse{

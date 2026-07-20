@@ -35,6 +35,35 @@ class ChatMessageRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("date_range", "dateRange"),
     )
+    source: str | None = None
+    parent_message_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("parent_message_id", "parentMessageId"),
+    )
+    active_report_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("active_report_id", "activeReportId"),
+    )
+    active_result_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("active_result_id", "activeResultId"),
+    )
+    current_filters: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("current_filters", "currentFilters"),
+    )
+    selected_rows: list[dict[str, Any]] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("selected_rows", "selectedRows"),
+    )
+    requested_output: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("requested_output", "requestedOutput"),
+    )
+    structured_action: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("structured_action", "structuredAction"),
+    )
     company: str | None = None
 
 
@@ -69,10 +98,12 @@ class TableColumn(BaseModel):
 
 class TablePart(BaseModel):
     type: Literal["table"] = "table"
+    result_id: str | None = None
     title: str
     columns: list[TableColumn]
     rows: list[dict[str, Any]]
     total_rows: int | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
     row_action: dict[str, Any] | None = None
 
 
@@ -183,6 +214,7 @@ class SuggestedAction(BaseModel):
     action_type: str
     disabled: bool = False
     reason: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractionMeta(BaseModel):

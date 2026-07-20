@@ -19,13 +19,18 @@ class AggregationAgent:
         conversation = conversation_id or new_id("conv")
         result = await self.service.run_aggregation(plan.aggregation, cookies, user, conversation)
         message_id = new_id("msg")
+        result_id = new_id("res")
+        table_config = {
+            "filters": result.source.get("filters") or {},
+            "aggregation": result.source.get("aggregation") or {},
+        }
         parts = [
             TextPart(content=result.summary),
             ToolCallPart(tool_name="run_aggregation", status="success", input_summary=result.plan.source_name, output_summary=f"{len(result.rows)} grouped rows returned"),
-            build_table_part(result.plan.chart_title or f"{result.plan.source_name} Summary", result.rows),
+            build_table_part(result.plan.chart_title or f"{result.plan.source_name} Summary", result.rows, result_id=result_id, config=table_config),
         ]
         if result.chart:
-            parts.append(_chart_part(result.chart))
+            parts.append(_chart_part(result.chart, result_id))
         source = SourceMeta(
             source_type="doctype",
             source_name=result.plan.source_name,
@@ -53,11 +58,11 @@ class AggregationAgent:
         )
 
 
-def _chart_part(chart: dict) -> ChartPart:
+def _chart_part(chart: dict, result_id: str | None = None) -> ChartPart:
     chart = normalize_chart_data(chart)
     chart_type = chart.get("chart_type") or "bar"
     x_key = chart.get("x_key") or chart.get("name_key")
     y_key = chart.get("y_key") or chart.get("value_key")
     if chart_type not in {"bar", "line", "pie", "donut", "area"}:
         chart_type = "bar"
-    return ChartPart(result_id=new_id("res"), source_type="analytics", source_name=chart.get("source_name"), title=chart.get("title") or "Aggregation Chart", chart_type=chart_type, data=chart.get("data") or [], x_key=x_key, y_key=y_key, config=chart.get("config") or {}, available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"])
+    return ChartPart(result_id=result_id or new_id("res"), source_type="analytics", source_name=chart.get("source_name"), title=chart.get("title") or "Aggregation Chart", chart_type=chart_type, data=chart.get("data") or [], x_key=x_key, y_key=y_key, config=chart.get("config") or {}, available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"])

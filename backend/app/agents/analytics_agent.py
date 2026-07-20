@@ -49,7 +49,8 @@ class AnalyticsAgent:
                 config={"filters": result.filters, "date_range": intent.date_range, "analytics_key": intent.analytics_key},
                 available_actions=["export_excel", "generate_pdf", "pin", "change_chart_type", "refine_filters", "change_columns", "save_report_view"],
             ))
-        parts.append(build_table_part(result.title, rows, doctype=result.source.get("source_name")))
+        table_config = {"filters": result.filters, "date_range": intent.date_range, "analytics_key": intent.analytics_key}
+        parts.append(build_table_part(result.title, rows, doctype=result.source.get("source_name"), result_id=result_id, config=table_config))
         message_id = new_id("msg")
         return AssistantChatResponse(
             conversation_id=intent.conversation_id or new_id("conv"),
