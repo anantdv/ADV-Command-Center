@@ -26,6 +26,8 @@ from app.schemas.chat import (
     SourceMeta,
     SuggestedAction,
     TablePart,
+    MissingFieldsPart,
+    RecordPreviewPart,
     TextPart,
     ToolCallPart,
     ChartPart,
@@ -41,6 +43,7 @@ from app.utils.ids import new_id
 from app.utils.suggestion_context_builder import SuggestionContextBuilder
 from app.utils.table_formatter import build_table_part
 from app.utils.chart_data_normalizer import normalize_chart_data
+from app.utils.payload_builder import PayloadBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +117,23 @@ class ChatService:
             )
         )
 
+        pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
+        if pending_response:
+            intent = IntentResult(
+                intent=pending_response.intent,
+                conversation_id=conversation.id,
+                raw_prompt=request.message,
+                confidence=1,
+            )
+            response = pending_response
+            route = "document_planner_continue"
+            response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            await self._remember_pending_draft(response)
+            await self._persist_response(response)
+            await self._audit(user, request.message, intent, response, safety)
+            logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": request.source or "typed", "resolved_intent": intent.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
+            return response
+
         followup = await self._resolve_report_followup(request, conversation.id)
         if followup:
             route = "report_followup"
@@ -179,6 +199,7 @@ class ChatService:
             fallback_used=intent.fallback_used,
         )
         await self._remember_report_context(response, intent, request)
+        await self._remember_pending_draft(response)
         await self._attach_suggestions(response, request.message, intent, cookies, user, user_roles or [])
         await self._persist_response(response)
         await self._audit(user, request.message, intent, response, safety)
@@ -214,6 +235,7 @@ class ChatService:
             confidence=1,
         )
         response = await self.crud_agent.handle(intent, cookies, user)
+        await self._remember_pending_draft(response)
         await self._persist_response(response)
         return response
 
@@ -253,6 +275,40 @@ class ChatService:
         widget=await self.dashboards.pin_from_chat(request,cookies,user)
         summary=f"I pinned {widget.title} to Overview. Its data will refresh through your current ERPNext permissions."
         return AssistantChatResponse(conversation_id=request.conversation_id,message_id=message_id,intent="pin_to_dashboard",parts=[TextPart(content=summary),ToolCallPart(tool_name="pin_to_dashboard",status="success",input_summary=source_name,output_summary=f"Widget {widget.widget_id} created")],source=SourceMeta(source_type=source_type,source_name=source_name,filters=intent.filters or {},doctype=intent.doctype,report_name=intent.report_name,fields=intent.fields),permission=PermissionMeta(allowed=True,risk_level="medium"),suggested_actions=[SuggestedAction(label="Open Overview",action_type="open_overview")],id=message_id,content=summary,created_at=utc_now())
+
+    async def _maybe_continue_pending_draft(self, request: ChatMessageRequest, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse | None:
+        pending = await self.repository.get_pending_draft(conversation_id)
+        if not pending:
+            return None
+        text = request.message.lower()
+        if any(word in text for word in ("cancel", "start over", "new command", "show ", "list ", "open ")):
+            return None
+        doctype = str(pending.get("doctype") or "")
+        if not doctype:
+            return None
+        collected = dict(pending.get("data") or {})
+        extracted = PayloadBuilder.extract_create(doctype, request.message)
+        merged = self._merge_draft_data(collected, extracted)
+        intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=merged, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
+        return await self.crud_agent.handle(intent, cookies, user)
+
+    @staticmethod
+    def _merge_draft_data(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base or {})
+        for key, value in (incoming or {}).items():
+            if key == "items" and isinstance(value, list):
+                merged["items"] = [*(merged.get("items") or []), *value]
+            elif value not in (None, "", []):
+                merged[key] = value
+        return merged
+
+    async def _remember_pending_draft(self, response: AssistantChatResponse) -> None:
+        missing = next((part for part in response.parts if isinstance(part, MissingFieldsPart)), None)
+        preview = next((part for part in response.parts if isinstance(part, RecordPreviewPart)), None)
+        if missing:
+            await self.repository.save_pending_draft(response.conversation_id, {"doctype": missing.doctype, "operation": missing.operation, "record_name": missing.record_name, "data": missing.collected_data, "message_id": response.message_id})
+        elif preview:
+            await self.repository.clear_pending_draft(response.conversation_id)
 
     async def _resolve_report_followup(self, request: ChatMessageRequest, conversation_id: str) -> dict[str, Any] | None:
         action = request.structured_action or {}

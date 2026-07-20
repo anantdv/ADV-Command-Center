@@ -20,6 +20,7 @@ class CrudService:
 
     async def prepare_create(self, doctype: str, data: dict, conversation_id: str | None = None, message_id: str | None = None, cookies: dict | None = None, user: str = "unknown") -> CrudPreviewResponse:
         if doctype not in ALLOWED_CREATE_FIELDS: raise AppError(f"Creating {doctype} is not enabled in this stage.", 422)
+        data = self._pre_normalize_create_data(doctype, data)
         filtered, blocked = filter_write_data(doctype, "create", data)
         if blocked: raise AppError("One or more fields are not allowed for draft creation.", 422, {"blocked_fields":blocked})
         warnings: list[str] = []
@@ -44,6 +45,18 @@ class CrudService:
         confirmation_id = self.confirmations.create({"operation":"create","doctype":doctype,"record_name":None,"data":filtered,"user":user,"conversation_id":conversation_id,"message_id":message_id})
         await self._audit("crud_confirmation_created", user, "create", doctype, None, filtered, [], confirmation_id, conversation_id, "pending")
         return CrudPreviewResponse(operation="create", doctype=doctype, data=filtered, after_data=filtered, permission=permission.model_dump(), confirmation_id=confirmation_id, warnings=warnings)
+
+    @staticmethod
+    def _pre_normalize_create_data(doctype: str, data: dict[str, Any]) -> dict[str, Any]:
+        output = dict(data or {})
+        warehouse = output.pop("warehouse", None)
+        if warehouse and isinstance(output.get("items"), list):
+            output["items"] = [{**item, "warehouse": item.get("warehouse") or warehouse} for item in output["items"] if isinstance(item, dict)]
+        if doctype == "Stock Entry" and output.get("stock_entry_type", "").lower() == "material transfer":
+            output.setdefault("purpose", "Material Transfer")
+        if doctype == "Journal Entry":
+            output.setdefault("voucher_type", "Journal Entry")
+        return output
 
     async def prepare_update(self, doctype: str, record_name: str, data: dict, conversation_id: str | None = None, message_id: str | None = None, cookies: dict | None = None, user: str = "unknown") -> CrudPreviewResponse:
         if doctype not in ALLOWED_UPDATE_FIELDS: raise AppError(f"Updating {doctype} is not enabled in this stage.", 422)

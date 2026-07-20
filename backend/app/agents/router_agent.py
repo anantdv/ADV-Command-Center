@@ -64,6 +64,24 @@ DOCTYPE_ALIASES = {
     "lead": "Lead",
     "tasks": "Task",
     "task": "Task",
+    "stock entries": "Stock Entry",
+    "stock entry": "Stock Entry",
+    "material transfer": "Stock Entry",
+    "material transfers": "Stock Entry",
+    "journal entries": "Journal Entry",
+    "journal entry": "Journal Entry",
+    "payment entries": "Payment Entry",
+    "payment entry": "Payment Entry",
+    "expense claims": "Expense Claim",
+    "expense claim": "Expense Claim",
+    "leave applications": "Leave Application",
+    "leave application": "Leave Application",
+    "assets": "Asset",
+    "asset": "Asset",
+    "work orders": "Work Order",
+    "work order": "Work Order",
+    "job cards": "Job Card",
+    "job card": "Job Card",
 }
 
 REPORT_ALIASES = {
@@ -140,6 +158,9 @@ class RouterAgent:
                 missing_info_hint="Please select a chart or report result first, then choose that action from the result buttons.",
                 date_range=date_range_context,
             )
+        planned_create = self._planned_create_intent(message)
+        if planned_create:
+            return self._with_date_context(planned_create, message, date_range_context)
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message, date_range=date_range_context)
 
@@ -330,6 +351,19 @@ class RouterAgent:
             confidence=0.9,
             raw_prompt=message,
         )
+
+    @staticmethod
+    def _planned_create_intent(message: str) -> IntentResult | None:
+        text = " ".join(message.lower().split())
+        if not re.search(r"\b(create|add|prepare|make)\b", text):
+            return None
+        doctype = RouterAgent._match_alias(text, DOCTYPE_ALIASES)
+        if not doctype:
+            return None
+        if doctype not in ALLOWED_CREATE_FIELDS:
+            return None
+        data = PayloadBuilder.extract_create(doctype, message)
+        return IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, confidence=.96, raw_prompt=message)
 
     @classmethod
     def _from_extracted(cls, extracted: ExtractedIntent, message: str) -> IntentResult:

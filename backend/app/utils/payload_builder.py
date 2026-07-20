@@ -67,7 +67,7 @@ class PayloadBuilder:
 
     @staticmethod
     def _party_after(lower: str, text: str, keyword: str) -> str | None:
-        match = re.search(rf"\b{keyword}\s+(.+?)(?=\s+(?:for|with|bill number|po number|containing|items?)\b|$)", text, re.I)
+        match = re.search(rf"\b{keyword}\s*:?\s+(.+?)(?=\s+(?:for|with|bill number|po number|containing|items?|qty|rate|warehouse|company|currency)\b|$)", text, re.I)
         if match:
             return match.group(1).strip()
         if f" for " in lower:
@@ -83,14 +83,45 @@ class PayloadBuilder:
             text,
             re.I,
         )
+        natural_items = PayloadBuilder._extract_natural_items(text)
         if not matches:
+            if natural_items:
+                data["items"] = natural_items
             return
         items = []
         for qty, code, rate in matches:
+            if code.upper() in {"ITEM", "ITEMS"}:
+                continue
             q = float(qty) if qty else 1
             r = float(rate.replace(",", "")) if rate else 0
             items.append({"item_code": code.upper(), "qty": q, "rate": r, "amount": q * r})
-        data["items"] = items
+        data["items"] = items + natural_items
+
+    @staticmethod
+    def _extract_natural_items(text: str) -> list[dict[str, Any]]:
+        body_parts = re.split(r"\b(?:items?|containing|with)\b", text, maxsplit=1, flags=re.I)
+        body = body_parts[-1] if len(body_parts) > 1 else text
+        body = body.replace(";", "\n")
+        lines = [line.strip(" -•\t") for line in body.splitlines() if line.strip(" -•\t")]
+        if len(lines) <= 1:
+            lines = re.split(r"\s+(?=[A-Z][A-Za-z /&().-]{1,40}\s+(?:qty\s*)?\d+(?:\.\d+)?(?:\s+(?:rate|@|x|at)\s*)?\d*)", body)
+        items: list[dict[str, Any]] = []
+        for line in lines:
+            clean = re.sub(r"^(?:supplier|customer|items?)\s*:\s*", "", line, flags=re.I).strip()
+            match = re.search(
+                r"(?P<name>[A-Za-z][A-Za-z0-9 /&().-]{1,50}?)\s+(?:qty\s*)?(?P<qty>\d+(?:\.\d+)?)(?:\s*(?:x|@|at|rate)\s*)?(?P<rate>\d+(?:\.\d+)?)?",
+                clean,
+                re.I,
+            )
+            if not match:
+                continue
+            name = match.group("name").strip(" :-")
+            if name.lower() in {"supplier", "customer", "items", "item", "rate"}:
+                continue
+            qty = float(match.group("qty"))
+            rate = float(match.group("rate") or 0)
+            items.append({"item_code": name, "item_name": name, "description": name, "qty": qty, "rate": rate, "amount": qty * rate})
+        return items
 
     @staticmethod
     def _extract_document_refs(text: str, data: dict[str, Any]) -> None:
@@ -98,6 +129,8 @@ class PayloadBuilder:
             "bill_no": r"bill (?:number|no)\s+([A-Z0-9-]+)",
             "po_no": r"po (?:number|no)\s+([A-Z0-9-]+)",
             "currency": r"currency\s+([A-Z]{3})",
+            "company": r"company\s+(.+?)(?=\s+(?:supplier|customer|items?|with|bill|currency|warehouse)\b|$)",
+            "warehouse": r"warehouse\s+(.+?)(?=\s+(?:supplier|customer|items?|with|bill|currency|company)\b|$)",
         }
         for field, pattern in refs.items():
             match = re.search(pattern, text, re.I)

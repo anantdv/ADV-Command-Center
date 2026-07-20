@@ -13,6 +13,12 @@ DATE_DEFAULTS = {
     "Delivery Note": ("posting_date",),
     "Purchase Receipt": ("posting_date",),
     "Material Request": ("transaction_date",),
+    "Stock Entry": ("posting_date",),
+    "Journal Entry": ("posting_date",),
+    "Payment Entry": ("posting_date", "reference_date"),
+    "Expense Claim": ("posting_date",),
+    "Work Order": ("planned_start_date",),
+    "Job Card": ("posting_date",),
     "Opportunity": ("transaction_date",),
     "Project": ("expected_start_date",),
     "Task": ("exp_start_date",),
@@ -36,5 +42,8 @@ def apply_document_defaults(doctype: str, data: dict[str, Any], user_context: di
     currency = (user_context or {}).get("currency") or (user_context or {}).get("default_currency")
     if currency and doctype in {"Quotation", "Sales Order", "Purchase Order", "Sales Invoice", "Purchase Invoice"}:
         output.setdefault("currency", currency)
+    company = (user_context or {}).get("company") or (user_context or {}).get("default_company")
+    if company and doctype in {"Quotation", "Sales Order", "Purchase Order", "Sales Invoice", "Purchase Invoice", "Delivery Note", "Purchase Receipt", "Stock Entry", "Journal Entry", "Payment Entry", "Expense Claim", "Employee", "Asset", "Work Order"}:
+        output.setdefault("company", company)
     output["docstatus"] = 0
     return output

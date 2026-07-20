@@ -74,8 +74,6 @@ def test_unsupported_and_high_risk_writes_are_blocked(client):
     for prompt in (
         "delete customer ABC Trading",
         "submit invoice ACC-SINV-2026-00001",
-        "create payment entry for customer ABC",
-        "create journal entry",
         "bulk update all customers",
     ):
         data = send(client, prompt)

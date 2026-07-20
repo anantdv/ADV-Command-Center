@@ -5,6 +5,7 @@ from typing import Any
 
 SALES_DOCUMENTS = {"Quotation", "Sales Order", "Sales Invoice", "Delivery Note"}
 PURCHASE_DOCUMENTS = {"Purchase Order", "Purchase Invoice", "Purchase Receipt"}
+STOCK_DOCUMENTS = {"Stock Entry"}
 
 
 def normalize_items_for_doctype(doctype: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -30,6 +31,9 @@ def normalize_items_for_doctype(doctype: str, items: list[dict[str, Any]]) -> li
             row["delivery_date"] = item["delivery_date"]
         if doctype in {"Purchase Order", "Material Request"} and item.get("schedule_date"):
             row["schedule_date"] = item["schedule_date"]
+        if doctype in STOCK_DOCUMENTS and item.get("warehouse"):
+            row["s_warehouse"] = item.get("s_warehouse") or item.get("warehouse")
+            row["t_warehouse"] = item.get("t_warehouse") or item.get("warehouse")
         if doctype == "Material Request":
             row.pop("rate", None)
             row.pop("amount", None)

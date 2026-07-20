@@ -20,6 +20,7 @@ class InMemoryConversationRepository:
         self.messages: dict[str, list[ChatMessage]] = {initial.id: []}
         self.tool_calls: list[dict[str, Any]] = []
         self.result_contexts: dict[str, list[dict[str, Any]]] = {}
+        self.pending_drafts: dict[str, dict[str, Any]] = {}
 
     async def list_conversations(self) -> list[Conversation]:
         return sorted(self.conversations.values(), key=lambda item: item.updated_at, reverse=True)
@@ -80,3 +81,12 @@ class InMemoryConversationRepository:
             if report_id and context.get("report_id") == report_id:
                 return context
         return None
+
+    async def save_pending_draft(self, conversation_id: str, draft: dict[str, Any]) -> None:
+        self.pending_drafts[conversation_id] = draft
+
+    async def get_pending_draft(self, conversation_id: str) -> dict[str, Any] | None:
+        return self.pending_drafts.get(conversation_id)
+
+    async def clear_pending_draft(self, conversation_id: str) -> None:
+        self.pending_drafts.pop(conversation_id, None)

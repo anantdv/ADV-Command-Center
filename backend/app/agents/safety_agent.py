@@ -16,6 +16,8 @@ class SafetyAgent:
         text = intent.raw_prompt.lower()
         if intent.intent.startswith("workflow_"):
             return SafetyResult(allowed=True, sensitive_intent=False, risk_level="medium" if intent.intent == "workflow_apply_action" else "low")
+        if intent.intent in {"crud_create", "crud_update"}:
+            return SafetyResult(allowed=True, sensitive_intent=False, risk_level="medium")
         if intent.intent == "blocked_write" or intent.write_requested or RouterAgent._blocked_write_requested(" ".join(text.split())):
             return SafetyResult(
                 allowed=False,
@@ -30,8 +32,6 @@ class SafetyAgent:
             return SafetyResult(allowed=False, reason="Direct SQL and database dumps are not available. I can use ERPNext reports and records.", risk_level="high")
         if any(term in text for term in ("salary", "salaries", "payroll")):
             return SafetyResult(allowed=False, reason="Salary and payroll queries require a dedicated sensitive-data workflow and are disabled here.", sensitive_intent=True, risk_level="high")
-        if intent.intent in {"crud_create", "crud_update"}:
-            return SafetyResult(allowed=True, sensitive_intent=False, risk_level="medium")
         return SafetyResult(allowed=True, sensitive_intent=intent.sensitive_intent, risk_level="low")
 
     async def handle(self, context: AgentContext) -> AgentResult:

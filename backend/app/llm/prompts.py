@@ -1,12 +1,12 @@
 import json
 
-ALLOWED_DOCTYPES = ["Customer", "Supplier", "Item", "Sales Invoice", "Purchase Invoice", "Sales Order", "Purchase Order", "Quotation", "Delivery Note", "Purchase Receipt", "Material Request", "Lead", "Opportunity", "Project", "Task", "Employee", "Issue"]
-ALLOWED_CREATE_DOCTYPES = ["Customer", "Supplier", "Item", "Quotation", "Lead", "Opportunity", "Issue"]
+ALLOWED_DOCTYPES = ["Customer", "Supplier", "Item", "Sales Invoice", "Purchase Invoice", "Sales Order", "Purchase Order", "Quotation", "Delivery Note", "Purchase Receipt", "Material Request", "Stock Entry", "Journal Entry", "Payment Entry", "Expense Claim", "Leave Application", "Lead", "Opportunity", "Project", "Task", "Employee", "Asset", "Work Order", "Job Card", "Issue"]
+ALLOWED_CREATE_DOCTYPES = ["Customer", "Supplier", "Item", "Quotation", "Sales Order", "Purchase Order", "Sales Invoice", "Purchase Invoice", "Delivery Note", "Purchase Receipt", "Material Request", "Stock Entry", "Journal Entry", "Payment Entry", "Expense Claim", "Leave Application", "Lead", "Opportunity", "Project", "Task", "Employee", "Asset", "Work Order", "Job Card", "Issue"]
 ALLOWED_UPDATE_DOCTYPES = ["Customer", "Supplier", "Item", "Lead", "Opportunity", "Issue", "Quotation"]
 ALLOWED_REPORTS = ["Stock Balance", "Stock Ledger", "General Ledger", "Trial Balance", "Accounts Receivable", "Accounts Payable"]
 ALLOWED_FILE_FORMATS = ["xlsx", "csv", "pdf", "html", "png"]
 ALLOWED_WIDGET_TYPES = ["kpi", "line_chart", "bar_chart", "pie_chart", "donut_chart", "area_chart", "table", "summary_card"]
-BLOCKED_OPERATIONS = ["submit", "cancel", "delete", "remove", "amend", "approve", "reject", "payment entry", "journal entry", "payroll", "salary", "bulk update", "send email", "raw sql", "sql", "ignore permissions", "admin access", "administrator", "bypass permission", "api key", "api secret", "password", "token"]
+BLOCKED_OPERATIONS = ["submit", "cancel", "delete", "remove", "amend", "approve", "reject", "pay now", "post payment", "post journal", "payroll", "salary", "bulk update", "send email", "raw sql", "sql", "ignore permissions", "admin access", "administrator", "bypass permission", "api key", "api secret", "password", "token"]
 
 
 def build_intent_extraction_system_prompt() -> str:
