@@ -1,13 +1,13 @@
-from enum import StrEnum
+from enum import Enum
 
 
-class RiskLevel(StrEnum):
+class RiskLevel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
-class Intent(StrEnum):
+class Intent(str, Enum):
     GENERAL_QUESTION = "general_question"
     ERP_QUERY = "erp_query"
     CRUD_CREATE = "crud_create"
