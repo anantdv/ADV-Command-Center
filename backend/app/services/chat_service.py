@@ -1,4 +1,5 @@
 import logging
+import re
 from time import perf_counter
 from typing import Any
 
@@ -132,10 +133,26 @@ class ChatService:
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
+        fresh_draft_intent = self.router._planned_create_intent(request.message)
+        if fresh_draft_intent and await self.repository.get_pending_draft(conversation.id):
+            await self.repository.supersede_pending_draft(conversation.id, new_id("draft"))
+            await self.repository.clear_pending_draft(conversation.id)
+            fresh_draft_intent.conversation_id = conversation.id
+            response = await self._prepare_crud_or_resolve_entities(fresh_draft_intent, conversation.id, cookies, user)
+            intent = fresh_draft_intent
+            route = "document_planner_new_session"
+            response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            await self._remember_pending_draft(response)
+            await self._persist_response(response)
+            await self._audit(user, request.message, intent, response, safety)
+            logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": request.source or "typed", "resolved_intent": intent.intent, "execution_route": route, "new_session_created": True, "prior_session_superseded": True, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
+            return response
+
         pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
         if pending_response:
+            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled"} else pending_response.intent
             intent = IntentResult(
-                intent="crud_create" if pending_response.intent == "child_rows_resolution_required" else pending_response.intent,
+                intent=audit_intent,
                 conversation_id=conversation.id,
                 raw_prompt=request.message,
                 confidence=1,
@@ -309,12 +326,28 @@ class ChatService:
         if not pending:
             return None
         text = request.message.lower()
-        if any(word in text for word in ("cancel", "start over", "new command", "show ", "list ", "open ")):
+        if re.search(r"\b(cancel|start again|start over)\b", text):
+            await self.repository.clear_pending_draft(conversation_id)
+            message_id = new_id("msg")
+            summary = "I cancelled the current draft session. You can start a new document whenever you are ready."
+            return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="draft_cancelled", parts=[TextPart(content=summary)], permission=PermissionMeta(allowed=True, risk_level="low"), id=message_id, content=summary, created_at=utc_now())
+        if any(word in text for word in ("show ", "list ", "open ")):
             return None
         doctype = str(pending.get("doctype") or "")
         if not doctype:
             return None
         collected = dict(pending.get("data") or {})
+        if self._is_proceed_command(text):
+            intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.99)
+            return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        removed = self._remove_matching_row(collected, request.message)
+        if removed:
+            intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
+            return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        correction = self._apply_short_correction(collected, request.message)
+        if correction:
+            intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
+            return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
         extracted = PayloadBuilder.extract_create(doctype, request.message)
         merged = self._merge_draft_data(collected, extracted)
         intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=merged, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
@@ -427,6 +460,45 @@ class ChatService:
             elif value not in (None, "", []):
                 merged[key] = value
         return merged
+
+    @staticmethod
+    def _is_proceed_command(text: str) -> bool:
+        return bool(re.search(r"\b(proceed|continue|use selected|prepare preview|review draft)\b", text))
+
+    @staticmethod
+    def _remove_matching_row(data: dict[str, Any], message: str) -> bool:
+        match = re.search(r"\bremove\s+(?:the\s+)?(.+)$", message, re.I)
+        if not match:
+            return False
+        needle = re.sub(r"\b(item|items?)\b", "", match.group(1), flags=re.I).strip().lower()
+        rows = data.get("items")
+        if not isinstance(rows, list) or not needle:
+            return False
+        before = len(rows)
+        data["items"] = [row for row in rows if not (isinstance(row, dict) and needle in str(row.get("source_text") or row.get("item_query") or row.get("description") or "").lower())]
+        return len(data["items"]) != before
+
+    @staticmethod
+    def _apply_short_correction(data: dict[str, Any], message: str) -> bool:
+        text = " ".join(message.strip().split())
+        if not text or len(text.split()) > 6 or re.search(r"\b(create|draft|show|list|proceed|continue|remove|supplier|customer|qty)\b", text, re.I):
+            return False
+        rows = data.get("items")
+        if not isinstance(rows, list):
+            return False
+        unresolved = [row for row in rows if isinstance(row, dict) and not row.get("item_code")]
+        if not unresolved:
+            return False
+        target = unresolved[-1]
+        lowered = text.lower()
+        for row in unresolved:
+            original = str(row.get("item_query") or row.get("source_text") or "").lower()
+            if any(token in lowered for token in original.split() if len(token) > 2) or any(token in original for token in lowered.split() if len(token) > 2):
+                target = row
+                break
+        target["item_query"] = text
+        target["source_text"] = text
+        return True
 
     async def _remember_pending_draft(self, response: AssistantChatResponse) -> None:
         missing = next((part for part in response.parts if isinstance(part, MissingFieldsPart)), None)

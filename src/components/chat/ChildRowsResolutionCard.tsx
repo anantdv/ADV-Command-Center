@@ -15,10 +15,13 @@ export function ChildRowsResolutionCard({part}:{part:ChildRowsResolutionPart}){
       structured_action:{
         action:'select_entity_match',
         draft_session_id:part.draft_session_id,
+        resolution_id:rowId,
+        entity_scope:rowId.startsWith('parent-')?'header':'child_row',
         table_field:rowId.startsWith('parent-')?'__parent__':part.table_field,
         row_id:rowId,
         fieldname,
         selected_value:value,
+        selected_doctype:fieldname==='item_code'?'Item':fieldname==='supplier'?'Supplier':fieldname==='customer'?'Customer':'',
       },
     })
   }

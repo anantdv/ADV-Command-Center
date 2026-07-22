@@ -15,9 +15,9 @@ class PayloadBuilder:
 
     @classmethod
     def extract_create(cls, doctype: str, prompt: str) -> dict[str, Any]:
-        text = " ".join(prompt.strip().split());lower=text.lower();data:dict[str,Any]={}
+        text = cls._preclean(prompt);lower=text.lower();data:dict[str,Any]={}
         alias = "support ticket" if "support ticket" in lower else doctype.lower()
-        tail = re.split(rf"\b(?:create|add)\s+(?:a\s+)?{re.escape(alias)}\b", text, maxsplit=1, flags=re.I)[-1].strip()
+        tail = re.split(rf"\b(?:create|add|draft|prepare|make|raise|enter)\s+(?:a\s+|an\s+|draft\s+|a\s+draft\s+)?{re.escape(alias)}\b", text, maxsplit=1, flags=re.I)[-1].strip()
         base = re.split(r"\s+with\s+", tail, maxsplit=1, flags=re.I)[0].strip()
         if doctype == "Customer": data["customer_name"] = base
         elif doctype == "Supplier": data["supplier_name"] = base
@@ -67,13 +67,13 @@ class PayloadBuilder:
 
     @staticmethod
     def _party_after(lower: str, text: str, keyword: str) -> str | None:
-        match = re.search(rf"\b{keyword}\s*:?\s+(.+?)(?=\s+(?:for|with|bill number|po number|containing|items?|qty|rate|warehouse|company|currency)\b|$)", text, re.I)
+        match = re.search(rf"\b{keyword}\s*:?\s+(.+?)(?=\s+(?:for\s+items?|with|bill number|po number|containing|items?|qty|rate|warehouse|company|currency)\b|$)", text, re.I)
         if match:
-            return match.group(1).strip()
+            return _clean_party(match.group(1))
         if f" for " in lower:
             tail = re.split(r"\bfor\b", text, maxsplit=1, flags=re.I)[-1]
-            tail = re.split(r"\b(?:with|containing|items?)\b", tail, maxsplit=1, flags=re.I)[0]
-            return re.sub(rf"^(?:{keyword}\s+)?", "", tail.strip(), flags=re.I).strip() or None
+            tail = re.split(r"\b(?:with|containing|for\s+items?|items?)\b", tail, maxsplit=1, flags=re.I)[0]
+            return _clean_party(re.sub(rf"^(?:{keyword}\s+)?", "", tail.strip(), flags=re.I)) or None
         return None
 
     @staticmethod
@@ -110,7 +110,10 @@ class PayloadBuilder:
         items: list[dict[str, Any]] = []
         for line in lines:
             clean = re.sub(r"^(?:supplier|customer|items?)\s*:\s*", "", line, flags=re.I).strip()
-            clean = re.sub(r"^(?:item\s+)?\d+\s+(?=[A-Za-z])", "", clean, flags=re.I).strip()
+            clean = clean.strip(" :-")
+            clean = re.sub(r"^(?:items?|item)\s+", "", clean, flags=re.I).strip()
+            clean = re.sub(r"^item\s+\d+\s+(?=[A-Za-z])", "", clean, flags=re.I).strip()
+            clean = re.sub(r"^\d+\s+(?!(?:inch|inches|l|ltr|litre|liter|kg|mm|cm)\b)(?=[A-Za-z])", "", clean, flags=re.I).strip()
             match = re.search(
                 r"(?:(?P<leading_qty>\d+(?:\.\d+)?)\s+(?P<leading_unit>bags?|cartons?|boxes|pcs|pieces|units?)\s+)?(?P<name>[A-Za-z0-9][A-Za-z0-9 /&().-]{1,60}?)(?:\s+(?:qty|quantity|x|units?|pcs|pieces)\s*(?P<qty>\d+(?:\.\d+)?))?(?:\s*(?:@|at|rate)\s*(?P<rate>\d+(?:\.\d+)?))?(?:\s+(?:each|ea))?(?:\s+warehouse\s+(?P<warehouse>.+?))?$",
                 clean,
@@ -120,18 +123,25 @@ class PayloadBuilder:
                 continue
             if not match.group("qty") and not match.group("leading_qty"):
                 continue
-            name = match.group("name").strip(" :-")
+            name = _normalize_item_query(match.group("name").strip(" :-"))
             if name.lower() in {"supplier", "customer", "items", "item", "rate"}:
                 continue
             qty = float(match.group("qty") or match.group("leading_qty") or 1)
             rate = float(match.group("rate") or 0)
-            row: dict[str, Any] = {"item_query": name, "source_text": line, "description": name, "qty": qty, "rate": rate, "amount": qty * rate}
+            row: dict[str, Any] = {"item_query": name, "source_text": clean, "description": name, "qty": qty, "rate": rate, "amount": qty * rate}
             if match.group("leading_unit"):
                 row["uom_query"] = match.group("leading_unit")
             if match.group("warehouse"):
                 row["warehouse_query"] = match.group("warehouse").strip()
             items.append(row)
         return items
+
+    @staticmethod
+    def _preclean(prompt: str) -> str:
+        text = " ".join(prompt.strip().split())
+        text = re.sub(r"\bqty(?=\d)", "qty ", text, flags=re.I)
+        text = re.sub(r"(?<=\d)(inch|inches|ltr|l)\b", r" \1", text, flags=re.I)
+        return text
 
     @staticmethod
     def _extract_document_refs(text: str, data: dict[str, Any]) -> None:
@@ -146,3 +156,17 @@ class PayloadBuilder:
             match = re.search(pattern, text, re.I)
             if match:
                 data[field] = match.group(1).strip().upper()
+
+
+def _clean_party(value: str) -> str:
+    value = re.sub(r"^(?:the\s+|selected\s+|supplier\s+|customer\s+)+", "", value.strip(), flags=re.I)
+    value = re.sub(r"\b(?:and|please|this|selected|item|items?)\b.*$", "", value, flags=re.I).strip(" ,:-")
+    return value
+
+
+def _normalize_item_query(value: str) -> str:
+    value = re.sub(r"(?<![\w-])items?(?![\w-])", "", value, flags=re.I)
+    value = re.sub(r"\bovern\b", "oven", value, flags=re.I)
+    value = re.sub(r"\bmedia(?=\s+split\s+ac\b)", "Midea", value, flags=re.I)
+    value = re.sub(r"\s+", " ", value).strip(" ,:-")
+    return value

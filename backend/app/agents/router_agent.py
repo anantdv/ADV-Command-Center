@@ -299,7 +299,7 @@ class RouterAgent:
                 raw_prompt=message,
             )
 
-        create_requested = bool(re.search(r"\b(create|add)\b", text))
+        create_requested = bool(re.search(r"\b(create|add|draft|prepare|make|raise|enter)\b", text) or re.search(r"\bgenerate\s+(?:a\s+)?draft\b", text))
         update_requested = bool(re.search(r"\b(update|change)\b", text))
         if create_requested or update_requested:
             doctype = self._match_alias(text, DOCTYPE_ALIASES)
@@ -355,7 +355,7 @@ class RouterAgent:
     @staticmethod
     def _planned_create_intent(message: str) -> IntentResult | None:
         text = " ".join(message.lower().split())
-        if not re.search(r"\b(create|add|prepare|make)\b", text):
+        if not (re.search(r"\b(create|add|draft|prepare|make|raise|enter)\b", text) or re.search(r"\bgenerate\s+(?:a\s+)?draft\b", text)):
             return None
         doctype = RouterAgent._match_alias(text, DOCTYPE_ALIASES)
         if not doctype:

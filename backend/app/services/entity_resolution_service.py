@@ -13,6 +13,13 @@ from app.services.erpnext_service import ERPNextService
 AUTO_RESOLVE_SCORE = 0.95
 AUTO_RESOLVE_GAP = 0.12
 SUGGEST_SCORE = 0.65
+LEGAL_SUFFIXES = {"limited", "ltd", "inc", "incorporated", "company", "co", "holdings", "group", "pty", "plc"}
+PRODUCT_SYNONYMS = {
+    "tv": ["television", "smart tv", "led tv"],
+    "ac": ["air conditioner", "split system", "aircon"],
+    "oven": ["electric oven"],
+    "fridge": ["refrigerator"],
+}
 
 ALLOWED_ENTITY_DOCTYPES = {
     "Supplier",
@@ -103,7 +110,9 @@ class EntityResolutionService:
         label = str(row.get(label_field) or row.get("label") or name)
         description = str(row.get("description") or row.get("item_group") or row.get("supplier_group") or row.get("customer_group") or doctype)
         query_norm = _norm(query)
+        query_variants = _query_variants(doctype, query_norm)
         candidates = [name, label, str(row.get("item_code") or ""), str(row.get("barcode") or "")]
+        candidates.extend(str(row.get(field) or "") for field in ("brand", "manufacturer", "supplier_part_no", "description", "item_group"))
         normalized = [_norm(value) for value in candidates if value]
         if query_norm in normalized:
             score, match_type = 1.0, "exact"
@@ -113,10 +122,15 @@ class EntityResolutionService:
             score, match_type = 0.82, "contains"
         else:
             haystack = " ".join(normalized)
-            token_score = _token_score(query_norm, haystack)
-            fuzzy = max([SequenceMatcher(None, query_norm, value).ratio() for value in normalized] or [0])
+            token_score = max(_token_score(variant, haystack, supplier_mode=doctype == "Supplier") for variant in query_variants)
+            fuzzy = max([SequenceMatcher(None, variant, value).ratio() for variant in query_variants for value in normalized] or [0])
             score = max(token_score, fuzzy * 0.92)
             match_type = "name_tokens" if token_score >= fuzzy else "fuzzy"
+        if doctype == "Supplier" and _distinctive_tokens(query_norm):
+            haystack = " ".join(normalized)
+            if not any(token in haystack.split() or any(part.startswith(token) for part in haystack.split()) for token in _distinctive_tokens(query_norm)):
+                score = min(score, 0.2)
+                match_type = "legal_suffix_only"
         return EntityMatch(
             value=name,
             label=label,
@@ -136,13 +150,36 @@ def _norm(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
-def _token_score(query: str, haystack: str) -> float:
+def _token_score(query: str, haystack: str, supplier_mode: bool = False) -> float:
     q_tokens = [token for token in query.split() if token]
+    if supplier_mode:
+        distinctive = [token for token in q_tokens if token not in LEGAL_SUFFIXES]
+        if distinctive:
+            q_tokens = distinctive
     h_tokens = set(haystack.split())
     if not q_tokens:
-        return 0
+        return 0.2 if supplier_mode else 0
     hits = sum(1 for token in q_tokens if token in h_tokens or any(part.startswith(token) for part in h_tokens))
-    return hits / len(q_tokens) * 0.86
+    coverage = hits / len(q_tokens)
+    if supplier_mode and coverage == 1:
+        return 0.95
+    return coverage * 0.86
+
+
+def _distinctive_tokens(query: str) -> list[str]:
+    return [token for token in query.split() if token and token not in LEGAL_SUFFIXES]
+
+
+def _query_variants(doctype: str, query_norm: str) -> list[str]:
+    variants = {query_norm}
+    if doctype == "Item":
+        tokens = query_norm.split()
+        for token in tokens:
+            for synonym in PRODUCT_SYNONYMS.get(token, []):
+                variants.add(" ".join([synonym if part == token else part for part in tokens]))
+        if "media" in tokens and "split" in tokens and "ac" in tokens:
+            variants.add(query_norm.replace("media", "midea"))
+    return list(variants)
 
 
 def _disabled(row: dict[str, Any]) -> bool:

@@ -90,3 +90,10 @@ class InMemoryConversationRepository:
 
     async def clear_pending_draft(self, conversation_id: str) -> None:
         self.pending_drafts.pop(conversation_id, None)
+
+    async def supersede_pending_draft(self, conversation_id: str, new_session_id: str) -> None:
+        draft = self.pending_drafts.get(conversation_id)
+        if draft:
+            draft["status"] = "superseded"
+            draft["superseded_by"] = new_session_id
+            self.pending_drafts[conversation_id] = draft
