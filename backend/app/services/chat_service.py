@@ -31,6 +31,7 @@ from app.schemas.chat import (
     TextPart,
     ToolCallPart,
     ChartPart,
+    ChildRowsResolutionPart,
 )
 from app.schemas.aggregation import AggregationMetric, AggregationPlan
 from app.schemas.crud import CancelCrudResponse, ConfirmCrudRequest, ConfirmCrudResponse, ContinueCrudRequest
@@ -44,6 +45,8 @@ from app.utils.suggestion_context_builder import SuggestionContextBuilder
 from app.utils.table_formatter import build_table_part
 from app.utils.chart_data_normalizer import normalize_chart_data
 from app.utils.payload_builder import PayloadBuilder
+from app.schemas.entity_resolution import ChildRowResolution, EntitySearchContext, EntitySearchRequest
+from app.services.entity_resolution_service import entity_resolution_service
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +120,22 @@ class ChatService:
             )
         )
 
+        selection_response = await self._handle_entity_selection_action(request, conversation.id, cookies, user)
+        if selection_response:
+            intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+            response = selection_response
+            route = "entity_selection"
+            response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            await self._remember_pending_draft(response)
+            await self._persist_response(response)
+            await self._audit(user, request.message, intent, response, safety)
+            logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
+            return response
+
         pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
         if pending_response:
             intent = IntentResult(
-                intent=pending_response.intent,
+                intent="crud_create" if pending_response.intent == "child_rows_resolution_required" else pending_response.intent,
                 conversation_id=conversation.id,
                 raw_prompt=request.message,
                 confidence=1,
@@ -171,7 +186,7 @@ class ChatService:
                 response = await self.file_agent.handle(intent, cookies, user)
             elif intent.intent in {"crud_create", "crud_update"}:
                 route = "crud_preview"
-                response = await self.crud_agent.handle(intent, cookies, user)
+                response = await self._prepare_crud_or_resolve_entities(intent, conversation.id, cookies, user)
             elif intent.intent == "report_composer":
                 route = "report_composer"
                 response = await self.report_composer_agent.handle(intent, cookies, user)
@@ -224,20 +239,33 @@ class ChatService:
         return response
 
     async def continue_crud(self, request: ContinueCrudRequest, cookies: dict | None = None, user: str = "unknown") -> AssistantChatResponse:
+        data = dict(request.data or {})
+        if request.operation == "create" and isinstance(data.get("items"), str):
+            data["items"] = PayloadBuilder._extract_natural_items(str(data["items"]))
         intent = IntentResult(
             intent="crud_create" if request.operation == "create" else "crud_update",
             operation=request.operation,
             doctype=request.doctype,
             record_name=request.record_name,
-            data=request.data,
+            data=data,
             conversation_id=request.conversation_id,
             raw_prompt=f"continue {request.operation} {request.doctype}",
             confidence=1,
         )
-        response = await self.crud_agent.handle(intent, cookies, user)
+        response = await self._prepare_crud_or_resolve_entities(intent, request.conversation_id or new_id("conv"), cookies, user)
         await self._remember_pending_draft(response)
         await self._persist_response(response)
         return response
+
+    async def _prepare_crud_or_resolve_entities(self, intent: IntentResult, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse:
+        if intent.intent == "crud_create" and intent.doctype:
+            resolution = await self._build_child_row_resolution(intent.doctype, intent.data or {}, conversation_id, cookies)
+            if resolution:
+                message_id = new_id("msg")
+                summary = "I found item rows in your request. Please choose the matching ERPNext records before I prepare the draft preview."
+                await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": message_id, "status": "resolving_entities"})
+                return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="child_rows_resolution_required", parts=[TextPart(content=summary), resolution], permission=PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
+        return await self.crud_agent.handle(intent, cookies, user)
 
     async def confirm_crud(self, request: ConfirmCrudRequest, cookies: dict | None = None, user: str = "unknown") -> ConfirmCrudResponse:
         return await self.crud_agent.tools.confirm_crud_action(request.confirmation_id, cookies, user)
@@ -290,7 +318,105 @@ class ChatService:
         extracted = PayloadBuilder.extract_create(doctype, request.message)
         merged = self._merge_draft_data(collected, extracted)
         intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=merged, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
-        return await self.crud_agent.handle(intent, cookies, user)
+        return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+
+    async def _handle_entity_selection_action(self, request: ChatMessageRequest, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse | None:
+        action = request.structured_action or {}
+        if action.get("action") != "select_entity_match":
+            return None
+        draft_id = str(action.get("draft_session_id") or conversation_id)
+        pending = await self.repository.get_pending_draft(draft_id) or await self.repository.get_pending_draft(conversation_id)
+        if not pending:
+            return self._unsupported_response(conversation_id, "I could not find the draft session for that selection. Please start the draft again.")
+        doctype = str(pending.get("doctype") or "")
+        data = dict(pending.get("data") or {})
+        table_field = str(action.get("table_field") or "items")
+        fieldname = str(action.get("fieldname") or "item_code")
+        row_id = str(action.get("row_id") or "")
+        selected = str(action.get("selected_value") or "")
+        if table_field == "__parent__":
+            data[fieldname] = selected
+            data.pop(f"{fieldname}_query", None)
+        else:
+            rows = list(data.get(table_field) or [])
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("row_id") or f"row-{index+1}") == row_id:
+                    row[fieldname] = selected
+                    row.pop(f"{fieldname}_query", None)
+                    row.pop("item_query", None)
+                    if fieldname == "item_code":
+                        details = await self._selected_item_defaults(selected, cookies)
+                        for key, value in details.items():
+                            row.setdefault(key, value)
+                    rows[index] = row
+                    break
+            data[table_field] = rows
+        intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=request.message, confidence=1)
+        return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+
+    async def _build_child_row_resolution(self, doctype: str, data: dict[str, Any], conversation_id: str, cookies: dict | None) -> ChildRowsResolutionPart | None:
+        output: list[ChildRowResolution] = []
+        for fieldname, target_doctype in self._parent_link_fields(doctype).items():
+            value = str(data.get(fieldname) or "").strip()
+            if not value:
+                continue
+            search = await entity_resolution_service.search(EntitySearchRequest(doctype=target_doctype, query=value, context=EntitySearchContext(parent_doctype=doctype, company=str(data.get("company") or ""))), cookies)
+            status, selected = entity_resolution_service.classify(search.matches)
+            if status == "resolved" and selected:
+                data[fieldname] = selected
+                continue
+            output.append(ChildRowResolution(row_id=f"parent-{fieldname}", source_text=value, status=status, extracted={}, link_field=fieldname, query=value, matches=search.matches, message=f"Please select the ERPNext {target_doctype}."))
+        rows = data.get("items")
+        if not isinstance(rows, list) or not rows:
+            if output:
+                return ChildRowsResolutionPart(draft_session_id=conversation_id, doctype=doctype, table_field="__parent__", rows=output)
+            return None
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict) or row.get("item_code"):
+                continue
+            query = str(row.get("item_query") or row.get("item_name") or row.get("description") or "").strip()
+            if not query:
+                continue
+            row.setdefault("row_id", f"row-{index+1}")
+            search = await entity_resolution_service.search(EntitySearchRequest(doctype="Item", query=query, context=EntitySearchContext(parent_doctype=doctype, company=str(data.get("company") or ""), supplier=str(data.get("supplier") or ""), warehouse=str(row.get("warehouse") or ""))), cookies)
+            status, selected = entity_resolution_service.classify(search.matches)
+            if status == "resolved" and selected:
+                row["item_code"] = selected
+                row.pop("item_query", None)
+                details = await self._selected_item_defaults(selected, cookies)
+                for key, value in details.items():
+                    row.setdefault(key, value)
+                continue
+            output.append(ChildRowResolution(row_id=str(row["row_id"]), source_text=str(row.get("source_text") or query), status=status, extracted={key: value for key, value in row.items() if key in {"qty", "rate", "uom", "warehouse", "schedule_date", "delivery_date", "description"} and value not in (None, "")}, link_field="item_code", query=query, matches=search.matches, message="Please select the ERPNext Item." if status == "needs_selection" else "No permitted Item matched this text."))
+        if output:
+            data["items"] = rows
+            table_field = "items" if any(row.row_id.startswith("row-") for row in output) else "__parent__"
+            return ChildRowsResolutionPart(draft_session_id=conversation_id, doctype=doctype, table_field=table_field, rows=output)
+        return None
+
+    @staticmethod
+    def _parent_link_fields(doctype: str) -> dict[str, str]:
+        mapping = {
+            "Purchase Order": {"supplier": "Supplier"},
+            "Purchase Invoice": {"supplier": "Supplier"},
+            "Purchase Receipt": {"supplier": "Supplier"},
+            "Sales Order": {"customer": "Customer"},
+            "Sales Invoice": {"customer": "Customer"},
+            "Quotation": {"party_name": "Customer"},
+            "Delivery Note": {"customer": "Customer"},
+            "Material Request": {},
+            "Stock Entry": {"from_warehouse": "Warehouse", "to_warehouse": "Warehouse"},
+        }
+        return mapping.get(doctype, {})
+
+    async def _selected_item_defaults(self, item_code: str, cookies: dict | None) -> dict[str, Any]:
+        try:
+            record = (await entity_resolution_service.erp.get_record("Item", item_code, ["name", "item_name", "description", "stock_uom"], cookies)).record
+            return {"item_name": record.get("item_name"), "description": record.get("description") or record.get("item_name"), "uom": record.get("stock_uom")}
+        except Exception:
+            return {}
 
     @staticmethod
     def _merge_draft_data(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:

@@ -104,7 +104,33 @@ export type ConfirmationPart = {
   risk_level: 'medium' | 'high'
 }
 export type OcrMappingPreviewPart = DocumentMappingPreview & { type: 'ocr_mapping_preview' }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OcrMappingPreviewPart
+export type EntityMatch = {
+  value: string
+  label: string
+  description?: string | null
+  match_type?: string
+  score: number
+  disabled?: boolean
+  metadata?: Record<string, unknown>
+}
+export type ChildRowsResolutionPart = {
+  type: 'child_rows_resolution_required'
+  draft_session_id: string
+  doctype: string
+  table_field: string
+  rows: Array<{
+    row_id: string
+    source_text: string
+    status: 'resolved' | 'needs_selection' | 'no_match' | 'invalid'
+    extracted: Record<string, unknown>
+    link_field: string
+    query: string
+    matches: EntityMatch[]
+    selected_value?: string | null
+    message?: string | null
+  }>
+}
+export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
 
 export type SuggestedAction = {
   label: string

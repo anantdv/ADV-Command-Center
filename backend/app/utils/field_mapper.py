@@ -75,4 +75,10 @@ def filter_write_data(doctype: str, operation: str, data: dict[str, Any]) -> tup
 
 
 def missing_required_fields(doctype: str, data: dict[str, Any]) -> list[str]:
-    return [field for field in REQUIRED_FIELDS.get(doctype, []) if data.get(field) in (None, "", [])]
+    missing = [field for field in REQUIRED_FIELDS.get(doctype, []) if data.get(field) in (None, "", [])]
+    if "items" in REQUIRED_FIELDS.get(doctype, []):
+        rows = data.get("items") or []
+        if not isinstance(rows, list) or not rows or any(isinstance(row, dict) and not row.get("item_code") for row in rows):
+            if "items" not in missing:
+                missing.append("items")
+    return missing

@@ -5,6 +5,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.common import CamelModel
 from app.schemas.crud import MissingField
+from app.schemas.entity_resolution import ChildRowsResolutionPart
 from app.schemas.suggestions import SuggestedPrompt
 
 
@@ -228,7 +229,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OCRMappingPreviewPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
 
 
 class AssistantChatResponse(BaseModel):

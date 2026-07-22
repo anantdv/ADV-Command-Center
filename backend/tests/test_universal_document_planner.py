@@ -21,22 +21,36 @@ def test_purchase_invoice_draft_starts_missing_field_collection(client):
     assert {"supplier", "items"}.issubset({field["fieldname"] for field in missing["fields"]})
 
 
-def test_purchase_invoice_draft_collects_supplier_and_items_in_followup(client):
+def test_purchase_invoice_draft_collects_supplier_and_exact_item_in_followup(client):
     initial = _send(client, "create purchase invoice draft")
     conversation_id = initial["conversation_id"]
 
     followup = _send(
         client,
-        "Supplier: ABC Traders\nItems:\nSugar 20 rate 12\nRice 50 rate 8\nWarehouse Main",
+        "Supplier: Acme Supplies\nItems:\nITEM-001 qty 2 rate 12\nWarehouse Main",
         conversation_id,
     )
 
     assert followup["intent"] == "crud_create"
     preview = _part(followup, "record_preview")
     assert preview["doctype"] == "Purchase Invoice"
-    assert preview["after_data"]["supplier"] == "ABC Traders"
-    assert len(preview["after_data"]["items"]) == 2
+    assert preview["after_data"]["supplier"] == "SUPP-0001"
+    assert preview["after_data"]["items"][0]["item_code"] == "ITEM-001"
+    assert preview["after_data"]["items"][0]["qty"] == 2
     assert _part(followup, "confirmation")["confirm_label"] == "Create Draft"
+
+
+def test_purchase_invoice_draft_does_not_copy_unresolved_text_to_item_code(client):
+    initial = _send(client, "create purchase invoice draft")
+    conversation_id = initial["conversation_id"]
+
+    followup = _send(client, "Supplier: Acme Supplies\nItems:\nTV qty 1", conversation_id)
+
+    assert followup["intent"] == "child_rows_resolution_required"
+    resolution = _part(followup, "child_rows_resolution_required")
+    assert resolution["rows"][0]["query"] == "TV"
+    assert resolution["rows"][0]["link_field"] == "item_code"
+    assert resolution["rows"][0]["status"] in {"needs_selection", "no_match"}
 
 
 def test_payment_and_journal_entries_start_draft_plans_not_blocked(client):

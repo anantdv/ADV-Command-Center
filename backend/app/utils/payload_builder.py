@@ -84,9 +84,10 @@ class PayloadBuilder:
             re.I,
         )
         natural_items = PayloadBuilder._extract_natural_items(text)
+        if natural_items:
+            data["items"] = natural_items
+            return
         if not matches:
-            if natural_items:
-                data["items"] = natural_items
             return
         items = []
         for qty, code, rate in matches:
@@ -94,33 +95,42 @@ class PayloadBuilder:
                 continue
             q = float(qty) if qty else 1
             r = float(rate.replace(",", "")) if rate else 0
-            items.append({"item_code": code.upper(), "qty": q, "rate": r, "amount": q * r})
-        data["items"] = items + natural_items
+            items.append({"item_query": code.upper(), "source_text": code, "qty": q, "rate": r, "amount": q * r})
+        data["items"] = items
 
     @staticmethod
     def _extract_natural_items(text: str) -> list[dict[str, Any]]:
         body_parts = re.split(r"\b(?:items?|containing|with)\b", text, maxsplit=1, flags=re.I)
         body = body_parts[-1] if len(body_parts) > 1 else text
+        body = re.sub(r"\s+\band\b\s+", ", ", body, flags=re.I)
         body = body.replace(";", "\n")
         lines = [line.strip(" -•\t") for line in body.splitlines() if line.strip(" -•\t")]
         if len(lines) <= 1:
-            lines = re.split(r"\s+(?=[A-Z][A-Za-z /&().-]{1,40}\s+(?:qty\s*)?\d+(?:\.\d+)?(?:\s+(?:rate|@|x|at)\s*)?\d*)", body)
+            lines = [part.strip() for part in re.split(r"\s*,\s*", body) if part.strip()]
         items: list[dict[str, Any]] = []
         for line in lines:
             clean = re.sub(r"^(?:supplier|customer|items?)\s*:\s*", "", line, flags=re.I).strip()
+            clean = re.sub(r"^(?:item\s+)?\d+\s+(?=[A-Za-z])", "", clean, flags=re.I).strip()
             match = re.search(
-                r"(?P<name>[A-Za-z][A-Za-z0-9 /&().-]{1,50}?)\s+(?:qty\s*)?(?P<qty>\d+(?:\.\d+)?)(?:\s*(?:x|@|at|rate)\s*)?(?P<rate>\d+(?:\.\d+)?)?",
+                r"(?:(?P<leading_qty>\d+(?:\.\d+)?)\s+(?P<leading_unit>bags?|cartons?|boxes|pcs|pieces|units?)\s+)?(?P<name>[A-Za-z0-9][A-Za-z0-9 /&().-]{1,60}?)(?:\s+(?:qty|quantity|x|units?|pcs|pieces)\s*(?P<qty>\d+(?:\.\d+)?))?(?:\s*(?:@|at|rate)\s*(?P<rate>\d+(?:\.\d+)?))?(?:\s+(?:each|ea))?(?:\s+warehouse\s+(?P<warehouse>.+?))?$",
                 clean,
                 re.I,
             )
             if not match:
                 continue
+            if not match.group("qty") and not match.group("leading_qty"):
+                continue
             name = match.group("name").strip(" :-")
             if name.lower() in {"supplier", "customer", "items", "item", "rate"}:
                 continue
-            qty = float(match.group("qty"))
+            qty = float(match.group("qty") or match.group("leading_qty") or 1)
             rate = float(match.group("rate") or 0)
-            items.append({"item_code": name, "item_name": name, "description": name, "qty": qty, "rate": rate, "amount": qty * rate})
+            row: dict[str, Any] = {"item_query": name, "source_text": line, "description": name, "qty": qty, "rate": rate, "amount": qty * rate}
+            if match.group("leading_unit"):
+                row["uom_query"] = match.group("leading_unit")
+            if match.group("warehouse"):
+                row["warehouse_query"] = match.group("warehouse").strip()
+            items.append(row)
         return items
 
     @staticmethod

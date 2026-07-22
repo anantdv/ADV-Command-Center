@@ -14,6 +14,7 @@ import { ColumnSelector } from '../reports/ColumnSelector'
 import { RecordDetailCard } from '../results/RecordDetailCard'
 import { chartPalette } from '../../theme/colors'
 import { DocumentMappingPreview } from '../document-intake/DocumentMappingPreview'
+import { ChildRowsResolutionCard } from './ChildRowsResolutionCard'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -43,6 +44,7 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
       if(part.type==='record_detail') return <RecordDetailCard key={`detail-${index}`} data={part}/>
       if(part.type==='confirmation') return <ConfirmationCard key={`confirm-${index}`} part={part}/>
       if(part.type==='ocr_mapping_preview') return <DocumentMappingPreview key={`ocr-${index}`} preview={part} onConfirm={()=>undefined} onCancel={()=>undefined}/>
+      if(part.type==='child_rows_resolution_required') return <ChildRowsResolutionCard key={`resolve-${index}`} part={part}/>
       return null
     })}
     {permission&&!permission.allowed&&<div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><ShieldAlert size={15} className="shrink-0"/><span>{permission.reason||'ERPNext restricted this request.'}</span></div>}
