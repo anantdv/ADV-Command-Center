@@ -177,6 +177,21 @@ class RecordPreviewPart(BaseModel):
     risk_level: Literal["medium", "high"] = "medium"
 
 
+class DraftInspectionSection(BaseModel):
+    title: str
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DraftInspectionPart(BaseModel):
+    type: Literal["draft_inspection"] = "draft_inspection"
+    draft_session_id: str
+    doctype: str
+    draft_version: int | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+    sections: list[DraftInspectionSection] = Field(default_factory=list)
+    mutation_performed: bool = False
+
+
 class RecordDetailPart(BaseModel):
     type: Literal["record_detail"] = "record_detail"
     doctype: str
@@ -254,7 +269,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
 
 
 class AssistantChatResponse(BaseModel):

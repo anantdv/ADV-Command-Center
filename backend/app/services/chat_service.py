@@ -29,6 +29,8 @@ from app.schemas.chat import (
     TablePart,
     MissingFieldsPart,
     RecordPreviewPart,
+    DraftInspectionPart,
+    DraftInspectionSection,
     DraftFieldOption,
     DraftFieldOptionsPart,
     TextPart,
@@ -166,7 +168,7 @@ class ChatService:
 
         pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
         if pending_response:
-            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options", "draft_preview_updated", "draft_edit_failed"} else pending_response.intent
+            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options", "draft_preview_updated", "draft_edit_failed", "show_draft_fields"} else pending_response.intent
             intent = IntentResult(
                 intent=audit_intent,
                 conversation_id=conversation.id,
@@ -374,6 +376,8 @@ class ChatService:
         warehouse_requirement = self._warehouse_requirement(collected) if doctype == "Purchase Order" else []
         if warehouse_requirement and self._warehouse_options_requested(text):
             return await self._draft_warehouse_options_response(conversation_id, doctype, collected, cookies, request.message)
+        if self._is_draft_inspection_request(request.message):
+            return await self._draft_inspection_response(conversation_id, doctype, collected, pending, request.message, cookies)
         if warehouse_requirement:
             applied = await self._try_apply_warehouse_from_text(collected, request.message, cookies)
             if applied:
@@ -535,7 +539,8 @@ class ChatService:
     async def _selected_item_defaults(self, item_code: str, cookies: dict | None) -> dict[str, Any]:
         try:
             record = (await entity_resolution_service.erp.get_record("Item", item_code, ["name", "item_name", "description", "stock_uom", "is_stock_item", "default_warehouse"], cookies)).record
-            defaults = {"item_name": record.get("item_name"), "description": record.get("description") or record.get("item_name"), "uom": record.get("stock_uom"), "is_stock_item": record.get("is_stock_item", 1)}
+            stock_uom = record.get("stock_uom")
+            defaults = {"item_name": record.get("item_name"), "description": record.get("description") or record.get("item_name"), "stock_uom": stock_uom, "uom": stock_uom, "conversion_factor": 1, "is_stock_item": record.get("is_stock_item", 1)}
             if record.get("default_warehouse"):
                 defaults["warehouse"] = record.get("default_warehouse")
             return defaults
@@ -559,6 +564,12 @@ class ChatService:
             hydrated.pop("_last_changes", None)
             return hydrated
         default_warehouse = hydrated.get("set_warehouse") or hydrated.get("warehouse")
+        if not hydrated.get("currency"):
+            currency, source = await self._resolve_draft_currency(hydrated, cookies)
+            if currency:
+                hydrated["currency"] = currency
+                hydrated.setdefault("conversion_rate", 1)
+                hydrated.setdefault("_field_sources", {})["currency"] = source
         new_rows: list[dict[str, Any]] = []
         for index, item in enumerate(rows):
             if not isinstance(item, dict):
@@ -569,6 +580,12 @@ class ChatService:
                 details = await self._selected_item_defaults(str(row["item_code"]), cookies)
                 for key, value in details.items():
                     row.setdefault(key, value)
+            if row.get("stock_uom") and not row.get("uom"):
+                row["uom"] = row["stock_uom"]
+            if row.get("uom") and not row.get("stock_uom"):
+                row["stock_uom"] = row["uom"]
+            if row.get("uom") and not row.get("conversion_factor"):
+                row["conversion_factor"] = 1
             if default_warehouse and doctype in {"Purchase Order", "Purchase Invoice", "Purchase Receipt", "Sales Order", "Sales Invoice", "Delivery Note", "Material Request"}:
                 row.setdefault("warehouse", default_warehouse)
             qty = self._to_float(row.get("qty"), 1)
@@ -580,6 +597,145 @@ class ChatService:
             new_rows.append(row)
         hydrated["items"] = new_rows
         return hydrated
+
+    async def _resolve_draft_currency(self, data: dict[str, Any], cookies: dict | None) -> tuple[str | None, str]:
+        try:
+            context = (await entity_resolution_service.erp.get_current_user_context(cookies)).model_dump()
+        except Exception:
+            context = {}
+        currency = data.get("currency") or context.get("company_currency") or context.get("companyCurrency") or context.get("default_currency")
+        if currency:
+            return str(currency), "company_default"
+        company = data.get("company") or context.get("company")
+        if company:
+            try:
+                record = (await entity_resolution_service.erp.get_record("Company", str(company), ["name", "default_currency"], cookies)).record
+                if record.get("default_currency"):
+                    return str(record["default_currency"]), "company_default"
+            except Exception:
+                pass
+        return None, "unresolved"
+
+    @staticmethod
+    def _is_draft_inspection_request(message: str) -> bool:
+        text = message.lower()
+        if not re.search(r"\b(show|what|which|display|summarize|explain|list|tell)\b", text):
+            return False
+        draftish = bool(re.search(r"\b(draft|preview|current|selected|will be created|this purchase|this invoice|this order)\b", text))
+        fieldish = bool(re.search(r"\b(uom|unit|units of measure|currency|exchange rate|warehouse|rates?|prices?|quantity|qty|total|subtotal|supplier|customer|company|item|items|missing|validation)\b", text))
+        return draftish or fieldish
+
+    async def _draft_inspection_response(self, conversation_id: str, doctype: str, data: dict[str, Any], pending: dict[str, Any], message: str, cookies: dict | None) -> AssistantChatResponse:
+        hydrated = await self._hydrate_draft_data(doctype, data, cookies)
+        requested = self._requested_draft_fields(message)
+        sections, fields = self._project_draft_fields(doctype, hydrated, requested)
+        message_id = new_id("msg")
+        summary = self._draft_inspection_summary(doctype, sections)
+        part = DraftInspectionPart(
+            draft_session_id=conversation_id,
+            doctype=doctype,
+            draft_version=pending.get("version"),
+            fields=fields,
+            sections=sections,
+            mutation_performed=False,
+        )
+        return AssistantChatResponse(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            intent="show_draft_fields",
+            parts=[TextPart(content=summary), part],
+            permission=PermissionMeta(allowed=True, risk_level="low", confirmation_required=bool(pending.get("confirmation_id"))),
+            id=message_id,
+            content=summary,
+            created_at=utc_now(),
+        )
+
+    @staticmethod
+    def _requested_draft_fields(message: str) -> list[str]:
+        text = message.lower()
+        aliases = {
+            "items.uom": [r"\buom\b", r"\bunit\b", r"\bunits of measure\b"],
+            "currency": [r"\bcurrency\b"],
+            "conversion_rate": [r"\bexchange rate\b", r"\bconversion rate\b"],
+            "items.warehouse": [r"\bwarehouse\b"],
+            "items.rate": [r"\brates?\b", r"\bprices?\b"],
+            "items.qty": [r"\bqty\b", r"\bquantity\b"],
+            "grand_total": [r"\bgrand total\b", r"\btotal\b"],
+            "net_total": [r"\bsubtotal\b", r"\bnet total\b"],
+            "supplier": [r"\bsupplier\b"],
+            "customer": [r"\bcustomer\b"],
+            "company": [r"\bcompany\b"],
+            "items": [r"\bitems?\b"],
+        }
+        requested = [field for field, patterns in aliases.items() if any(re.search(pattern, text) for pattern in patterns)]
+        if not requested:
+            requested = ["supplier", "customer", "company", "currency", "items", "grand_total"]
+        return requested
+
+    @staticmethod
+    def _project_draft_fields(doctype: str, data: dict[str, Any], requested: list[str]) -> tuple[list[DraftInspectionSection], dict[str, Any]]:
+        sections: list[DraftInspectionSection] = []
+        fields: dict[str, Any] = {}
+        header_rows: list[dict[str, Any]] = []
+        header_map = {
+            "supplier": "Supplier",
+            "customer": "Customer",
+            "company": "Company",
+            "currency": "Currency",
+            "conversion_rate": "Conversion Rate",
+            "transaction_date": "Transaction Date",
+            "schedule_date": "Schedule Date",
+            "posting_date": "Posting Date",
+            "due_date": "Due Date",
+            "grand_total": "Grand Total",
+            "net_total": "Net Total",
+        }
+        totals = ChatService._draft_totals(data)
+        projected = {**data, **totals}
+        for field, label in header_map.items():
+            if field in requested and projected.get(field) not in (None, "", []):
+                source = (data.get("_field_sources") or data.get("field_sources") or {}).get(field)
+                row = {"label": label, "value": projected[field]}
+                if source:
+                    row["source"] = source
+                header_rows.append(row)
+                fields[field] = {"value": projected[field], "label": label, "source": source}
+        if header_rows:
+            sections.append(DraftInspectionSection(title=f"{doctype} Draft", rows=header_rows))
+        rows = data.get("items")
+        if isinstance(rows, list) and any(field.startswith("items") or field == "items" for field in requested):
+            item_rows: list[dict[str, Any]] = []
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                label = str(row.get("item_name") or row.get("item_code") or row.get("description") or f"Item {index+1}")
+                projected_row = {"label": label, "row_id": row.get("row_id") or f"row-{index+1}", "item_code": row.get("item_code")}
+                for field in ("uom", "stock_uom", "warehouse", "rate", "qty", "amount", "conversion_factor", "description"):
+                    if f"items.{field}" in requested or "items" in requested:
+                        projected_row[field] = row.get(field)
+                item_rows.append(projected_row)
+            if item_rows:
+                title = "Item UOM" if requested == ["items.uom"] or "items.uom" in requested and len(requested) <= 2 else "Items"
+                sections.append(DraftInspectionSection(title=title, rows=item_rows))
+                fields["items"] = item_rows
+        return sections, fields
+
+    @staticmethod
+    def _draft_inspection_summary(doctype: str, sections: list[DraftInspectionSection]) -> str:
+        currency = None
+        uoms: set[str] = set()
+        for section in sections:
+            for row in section.rows:
+                if row.get("label") == "Currency":
+                    currency = row.get("value")
+                if row.get("uom"):
+                    uoms.add(str(row["uom"]))
+        fragments = [f"Here are the requested values from the active {doctype} draft."]
+        if currency:
+            fragments.append(f"Currency is {currency}.")
+        if uoms:
+            fragments.append("Item UOM: " + ", ".join(sorted(uoms)) + ".")
+        return " ".join(fragments)
 
     def _apply_natural_draft_updates(self, data: dict[str, Any], message: str) -> dict[str, Any]:
         rows = data.get("items")

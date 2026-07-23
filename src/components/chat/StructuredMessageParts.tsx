@@ -16,6 +16,7 @@ import { chartPalette } from '../../theme/colors'
 import { DocumentMappingPreview } from '../document-intake/DocumentMappingPreview'
 import { ChildRowsResolutionCard } from './ChildRowsResolutionCard'
 import { DraftFieldOptionsCard } from './DraftFieldOptionsCard'
+import { DraftInspectionCard } from './DraftInspectionCard'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -42,6 +43,7 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
       if(part.type==='file') return <GeneratedFileCard key={`file-${index}`} part={part}/>
       if(part.type==='missing_fields') return <MissingFieldsForm key={`missing-${index}`} part={part}/>
       if(part.type==='record_preview') return <RecordPreviewCard key={`preview-${index}`} part={part}/>
+      if(part.type==='draft_inspection') return <DraftInspectionCard key={`draft-inspection-${index}`} part={part}/>
       if(part.type==='record_detail') return <RecordDetailCard key={`detail-${index}`} data={part}/>
       if(part.type==='draft_field_options') return <DraftFieldOptionsCard key={`draft-options-${index}`} part={part}/>
       if(part.type==='confirmation') return <ConfirmationCard key={`confirm-${index}`} part={part}/>

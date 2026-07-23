@@ -76,10 +76,26 @@ export type RecordPreviewPart = {
   type: 'record_preview'
   operation: 'create' | 'update'
   doctype: string
+  draft_session_id?: string | null
+  draft_version?: number | null
   record_name?: string | null
   before_data?: Record<string, unknown> | null
   after_data: Record<string, unknown>
+  totals?: Record<string, unknown>
+  changes?: Array<Record<string, unknown>>
   risk_level: 'medium' | 'high'
+}
+export type DraftInspectionPart = {
+  type: 'draft_inspection'
+  draft_session_id: string
+  doctype: string
+  draft_version?: number | null
+  fields?: Record<string, unknown>
+  sections: Array<{
+    title: string
+    rows: Array<Record<string, unknown>>
+  }>
+  mutation_performed?: boolean
 }
 export type RecordDetailPart = {
   type: 'record_detail'
@@ -148,7 +164,7 @@ export type ChildRowsResolutionPart = {
     message?: string | null
   }>
 }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
+export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
 
 export type SuggestedAction = {
   label: string

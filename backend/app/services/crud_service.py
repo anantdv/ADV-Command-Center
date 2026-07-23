@@ -21,6 +21,7 @@ class CrudService:
     async def prepare_create(self, doctype: str, data: dict, conversation_id: str | None = None, message_id: str | None = None, cookies: dict | None = None, user: str = "unknown") -> CrudPreviewResponse:
         if doctype not in ALLOWED_CREATE_FIELDS: raise AppError(f"Creating {doctype} is not enabled in this stage.", 422)
         data = self._pre_normalize_create_data(doctype, data)
+        data = {key: value for key, value in data.items() if not str(key).startswith("_") and key != "field_sources"}
         filtered, blocked = filter_write_data(doctype, "create", data)
         if blocked: raise AppError("One or more fields are not allowed for draft creation.", 422, {"blocked_fields":blocked})
         warnings: list[str] = []

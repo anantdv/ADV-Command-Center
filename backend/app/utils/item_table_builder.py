@@ -26,6 +26,8 @@ def normalize_items_for_doctype(doctype: str, items: list[dict[str, Any]]) -> li
             "description": item.get("description") or item.get("item_name") or item.get("item_code") or item.get("item_query"),
             "qty": _number(item.get("qty")) or 1,
             "uom": item.get("uom") or item.get("stock_uom"),
+            "stock_uom": item.get("stock_uom") or item.get("uom"),
+            "conversion_factor": _number(item.get("conversion_factor")) or (1 if item.get("uom") or item.get("stock_uom") else None),
         }
         if doctype in SALES_DOCUMENTS | PURCHASE_DOCUMENTS:
             row["rate"] = _number(item.get("rate")) or 0

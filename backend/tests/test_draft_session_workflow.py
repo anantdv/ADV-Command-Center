@@ -194,3 +194,36 @@ def test_draft_rate_update_does_not_fall_to_blocked_write(client):
 
     assert updated["intent"] == "draft_preview_updated"
     assert not any("disabled" in part.get("content", "").lower() for part in updated["parts"] if part["type"] == "text")
+
+
+def test_draft_inspection_shows_uom_and_currency_without_mutation(client):
+    preview_response = _purchase_order_preview_with_two_items(client)
+    conversation_id = preview_response["conversation_id"]
+    preview = _part(preview_response, "record_preview")
+    confirmation_id = _part(preview_response, "confirmation")["confirmation_id"]
+
+    inspected = _send(client, "show me the UOM and currency in the draft preview", conversation_id)
+    inspection = _part(inspected, "draft_inspection")
+
+    assert inspected["intent"] == "show_draft_fields"
+    assert "blocked" not in inspected["content"].lower()
+    assert inspection["mutation_performed"] is False
+    assert inspection["draft_version"] == preview["draft_version"]
+    assert any(row["label"] == "Currency" and row["value"] for section in inspection["sections"] for row in section["rows"])
+    item_rows = [row for section in inspection["sections"] if section["title"] in {"Items", "Item UOM"} for row in section["rows"]]
+    assert len(item_rows) == 2
+    assert all(row.get("uom") for row in item_rows)
+
+    confirmed = client.post("/api/chat/actions/cancel", json={"confirmation_id": confirmation_id})
+    assert confirmed.status_code == 200
+
+
+def test_draft_rate_inspection_is_read_only(client):
+    preview_response = _purchase_order_preview_with_two_items(client)
+    inspected = _send(client, "show me the rates", preview_response["conversation_id"])
+    inspection = _part(inspected, "draft_inspection")
+
+    assert inspected["intent"] == "show_draft_fields"
+    assert inspection["mutation_performed"] is False
+    rows = [row for section in inspection["sections"] for row in section["rows"] if "rate" in row]
+    assert rows
