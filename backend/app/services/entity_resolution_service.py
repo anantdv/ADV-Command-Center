@@ -46,7 +46,7 @@ SEARCH_FIELD_MAP: dict[str, list[str]] = {
     "Supplier": ["name", "supplier_name", "supplier_group", "disabled"],
     "Customer": ["name", "customer_name", "customer_group", "territory", "disabled"],
     "Item": ["name", "item_code", "item_name", "item_group", "stock_uom", "description", "disabled"],
-    "Warehouse": ["name", "warehouse_name", "company", "disabled"],
+    "Warehouse": ["name", "warehouse_name", "company", "is_group", "disabled"],
     "Company": ["name", "company_name"],
     "Cost Center": ["name", "cost_center_name", "company", "disabled"],
     "Project": ["name", "project_name", "status"],

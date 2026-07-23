@@ -100,6 +100,7 @@ class PayloadBuilder:
 
     @staticmethod
     def _extract_natural_items(text: str) -> list[dict[str, Any]]:
+        has_item_context = bool(re.search(r"\b(?:items?|containing)\b", text, re.I))
         body_parts = re.split(r"\b(?:items?|containing|with)\b", text, maxsplit=1, flags=re.I)
         body = body_parts[-1] if len(body_parts) > 1 else text
         body = re.sub(r"\s+\band\b\s+", ", ", body, flags=re.I)
@@ -121,7 +122,7 @@ class PayloadBuilder:
             )
             if not match:
                 continue
-            if not match.group("qty") and not match.group("leading_qty"):
+            if not match.group("qty") and not match.group("leading_qty") and not has_item_context:
                 continue
             name = _normalize_item_query(match.group("name").strip(" :-"))
             if name.lower() in {"supplier", "customer", "items", "item", "rate"}:

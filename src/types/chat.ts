@@ -94,6 +94,24 @@ export type RecordDetailPart = {
   items?: Array<Record<string, unknown>>
   available_workflow_actions?: Array<Record<string, unknown>>
 }
+export type DraftFieldOptionsPart = {
+  type: 'draft_field_options'
+  draft_session_id: string
+  doctype: string
+  fieldname: string
+  label: string
+  table_field?: string | null
+  row_ids: string[]
+  message: string
+  options: Array<{
+    value: string
+    label: string
+    description?: string | null
+    metadata?: Record<string, unknown>
+    disabled?: boolean
+    reason?: string | null
+  }>
+}
 export type ConfirmationPart = {
   type: 'confirmation'
   confirmation_id: string
@@ -130,7 +148,7 @@ export type ChildRowsResolutionPart = {
     message?: string | null
   }>
 }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
+export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
 
 export type SuggestedAction = {
   label: string

@@ -164,6 +164,10 @@ class RouterAgent:
         if self._blocked_write_requested(text):
             return IntentResult(intent="blocked_write", write_requested=True, confidence=0.99, raw_prompt=message, date_range=date_range_context)
 
+        detail = parse_detail_intent(message)
+        if detail.matched:
+            return IntentResult(intent="get_record", doctype=detail.doctype, record_name=detail.name, confidence=detail.confidence, raw_prompt=message, missing_info_hint="I found the document number, but I need the document type to open it." if detail.needs_doctype else None, date_range=date_range_context)
+
         command_intent = await command_router_service.route(message, module_context, date_range_context)
         if command_intent.intent != "unsupported":
             return self._from_command_intent(command_intent)

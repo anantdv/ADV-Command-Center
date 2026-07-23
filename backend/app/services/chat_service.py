@@ -29,6 +29,8 @@ from app.schemas.chat import (
     TablePart,
     MissingFieldsPart,
     RecordPreviewPart,
+    DraftFieldOption,
+    DraftFieldOptionsPart,
     TextPart,
     ToolCallPart,
     ChartPart,
@@ -133,6 +135,18 @@ class ChatService:
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
+        draft_field_response = await self._handle_draft_field_action(request, conversation.id, cookies, user)
+        if draft_field_response:
+            intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+            response = draft_field_response
+            route = "draft_field_selection"
+            response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            await self._remember_pending_draft(response)
+            await self._persist_response(response)
+            await self._audit(user, request.message, intent, response, safety)
+            logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
+            return response
+
         fresh_draft_intent = self.router._planned_create_intent(request.message)
         if fresh_draft_intent and await self.repository.get_pending_draft(conversation.id):
             await self.repository.supersede_pending_draft(conversation.id, new_id("draft"))
@@ -150,7 +164,7 @@ class ChatService:
 
         pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
         if pending_response:
-            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled"} else pending_response.intent
+            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options"} else pending_response.intent
             intent = IntentResult(
                 intent=audit_intent,
                 conversation_id=conversation.id,
@@ -282,6 +296,13 @@ class ChatService:
                 summary = "I found item rows in your request. Please choose the matching ERPNext records before I prepare the draft preview."
                 await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": message_id, "status": "resolving_entities"})
                 return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="child_rows_resolution_required", parts=[TextPart(content=summary), resolution], permission=PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
+            readiness = self._evaluate_draft_readiness(intent.doctype, intent.data or {})
+            if not readiness["ready"]:
+                warehouse_blocked = any(item.get("fieldname") == "warehouse" for item in readiness["blocking_requirements"])
+                if warehouse_blocked:
+                    response = await self._draft_warehouse_options_response(conversation_id, intent.doctype, intent.data or {}, cookies, intent.raw_prompt)
+                    await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": response.message_id, "status": "awaiting_warehouse", "blocking_requirements": readiness["blocking_requirements"]})
+                    return response
         return await self.crud_agent.handle(intent, cookies, user)
 
     async def confirm_crud(self, request: ConfirmCrudRequest, cookies: dict | None = None, user: str = "unknown") -> ConfirmCrudResponse:
@@ -331,12 +352,20 @@ class ChatService:
             message_id = new_id("msg")
             summary = "I cancelled the current draft session. You can start a new document whenever you are ready."
             return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="draft_cancelled", parts=[TextPart(content=summary)], permission=PermissionMeta(allowed=True, risk_level="low"), id=message_id, content=summary, created_at=utc_now())
-        if any(word in text for word in ("show ", "list ", "open ")):
-            return None
         doctype = str(pending.get("doctype") or "")
         if not doctype:
             return None
         collected = dict(pending.get("data") or {})
+        warehouse_requirement = self._warehouse_requirement(collected) if doctype == "Purchase Order" else []
+        if warehouse_requirement and self._warehouse_options_requested(text):
+            return await self._draft_warehouse_options_response(conversation_id, doctype, collected, cookies, request.message)
+        if warehouse_requirement:
+            applied = await self._try_apply_warehouse_from_text(collected, request.message, cookies)
+            if applied:
+                intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
+                return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        if any(word in text for word in ("show ", "list ", "open ")):
+            return None
         if self._is_proceed_command(text):
             intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.99)
             return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
@@ -386,6 +415,42 @@ class ChatService:
                     rows[index] = row
                     break
             data[table_field] = rows
+        intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=request.message, confidence=1)
+        return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+
+    async def _handle_draft_field_action(self, request: ChatMessageRequest, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse | None:
+        action = request.structured_action or {}
+        if action.get("action") not in {"select_draft_field_value", "set_child_row_field", "set_field_for_rows"}:
+            return None
+        draft_id = str(action.get("draft_session_id") or conversation_id)
+        pending = await self.repository.get_pending_draft(draft_id) or await self.repository.get_pending_draft(conversation_id)
+        if not pending:
+            return self._unsupported_response(conversation_id, "I could not find the active draft session. Please start the draft again.")
+        doctype = str(pending.get("doctype") or "")
+        data = dict(pending.get("data") or {})
+        fieldname = str(action.get("fieldname") or "")
+        value = str(action.get("selected_value") or action.get("value") or "")
+        table_field = str(action.get("table_field") or "items")
+        row_ids = [str(row_id) for row_id in (action.get("row_ids") or []) if row_id]
+        row_id = str(action.get("row_id") or "")
+        if row_id and not row_ids:
+            row_ids = [row_id]
+        if not fieldname or not value:
+            return self._unsupported_response(conversation_id, "I could not apply that draft field selection.")
+        if table_field and table_field != "__parent__":
+            rows = list(data.get(table_field) or [])
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                current_id = str(row.get("row_id") or f"row-{index+1}")
+                if not row_ids or current_id in row_ids:
+                    row[fieldname] = value
+                    rows[index] = row
+            data[table_field] = rows
+            if fieldname == "warehouse":
+                data.setdefault("set_warehouse", value)
+        else:
+            data[fieldname] = value
         intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=request.message, confidence=1)
         return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
 
@@ -446,8 +511,11 @@ class ChatService:
 
     async def _selected_item_defaults(self, item_code: str, cookies: dict | None) -> dict[str, Any]:
         try:
-            record = (await entity_resolution_service.erp.get_record("Item", item_code, ["name", "item_name", "description", "stock_uom"], cookies)).record
-            return {"item_name": record.get("item_name"), "description": record.get("description") or record.get("item_name"), "uom": record.get("stock_uom")}
+            record = (await entity_resolution_service.erp.get_record("Item", item_code, ["name", "item_name", "description", "stock_uom", "is_stock_item", "default_warehouse"], cookies)).record
+            defaults = {"item_name": record.get("item_name"), "description": record.get("description") or record.get("item_name"), "uom": record.get("stock_uom"), "is_stock_item": record.get("is_stock_item", 1)}
+            if record.get("default_warehouse"):
+                defaults["warehouse"] = record.get("default_warehouse")
+            return defaults
         except Exception:
             return {}
 
@@ -500,11 +568,121 @@ class ChatService:
         target["source_text"] = text
         return True
 
+    @staticmethod
+    def _warehouse_requirement(data: dict[str, Any]) -> list[str]:
+        rows = data.get("items")
+        if not isinstance(rows, list):
+            return []
+        return [
+            str(row.get("row_id") or f"row-{index+1}")
+            for index, row in enumerate(rows)
+            if isinstance(row, dict) and row.get("item_code") and not row.get("warehouse")
+        ]
+
+    @staticmethod
+    def _warehouse_options_requested(text: str) -> bool:
+        return "warehouse" in text and bool(re.search(r"\b(show|list|available|which|options?)\b", text))
+
+    def _evaluate_draft_readiness(self, doctype: str, data: dict[str, Any]) -> dict[str, Any]:
+        blocking: list[dict[str, Any]] = []
+        rows = data.get("items")
+        if isinstance(rows, list):
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                row_id = str(row.get("row_id") or f"row-{index+1}")
+                if not row.get("item_code"):
+                    blocking.append({"scope": "child_row", "table_field": "items", "row_id": row_id, "fieldname": "item_code", "reason": "Item is unresolved"})
+                if float(row.get("qty") or 0) <= 0:
+                    blocking.append({"scope": "child_row", "table_field": "items", "row_id": row_id, "fieldname": "qty", "reason": "Quantity must be greater than zero"})
+                if doctype in {"Purchase Order"} and row.get("item_code") and not row.get("warehouse"):
+                    blocking.append({"scope": "child_row", "table_field": "items", "row_id": row_id, "fieldname": "warehouse", "reason": "Warehouse is required for this item row"})
+        return {"ready": not blocking, "blocking_requirements": blocking}
+
+    async def _draft_warehouse_options_response(self, conversation_id: str, doctype: str, data: dict[str, Any], cookies: dict | None, prompt: str) -> AssistantChatResponse:
+        row_ids = self._warehouse_requirement(data)
+        query = self._warehouse_query(prompt)
+        options = await self._warehouse_options(data, cookies, query)
+        message_id = new_id("msg")
+        summary = "A warehouse is required for the selected stock items. Choose a valid leaf warehouse before I prepare the draft preview."
+        part = DraftFieldOptionsPart(
+            draft_session_id=conversation_id,
+            doctype=doctype,
+            fieldname="warehouse",
+            label="Warehouse",
+            table_field="items",
+            row_ids=row_ids,
+            message="Choose a warehouse for the Purchase Order items.",
+            options=options,
+        )
+        await self.repository.save_pending_draft(conversation_id, {"doctype": doctype, "operation": "create", "data": data, "message_id": message_id, "status": "awaiting_warehouse"})
+        return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="draft_field_options", parts=[TextPart(content=summary), part], permission=PermissionMeta(allowed=True, risk_level="low", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
+
+    async def _try_apply_warehouse_from_text(self, data: dict[str, Any], message: str, cookies: dict | None) -> bool:
+        query = self._warehouse_query(message)
+        if not query:
+            return False
+        options = await self._warehouse_options(data, cookies, query)
+        valid = [option for option in options if not option.disabled and option.value.lower() == query.lower()]
+        if not valid:
+            valid = [option for option in options if not option.disabled]
+        if not valid:
+            return False
+        selected = valid[0].value
+        rows = data.get("items")
+        if not isinstance(rows, list):
+            return False
+        for row in rows:
+            if isinstance(row, dict) and row.get("item_code") and not row.get("warehouse"):
+                row["warehouse"] = selected
+        data["set_warehouse"] = selected
+        return True
+
+    @staticmethod
+    def _warehouse_query(message: str) -> str:
+        text = " ".join(message.strip().split())
+        text = re.sub(r"^(?:show|list|which|available|use|select|set)\s+(?:me\s+)?", "", text, flags=re.I).strip()
+        text = re.sub(r"^(?:warehouse|warehouses)\s*(?:list|options?)?\s*", "", text, flags=re.I).strip()
+        text = re.sub(r"\b(?:for\s+all\s+items?|for\s+the\s+draft|as\s+warehouse|warehouse)\b", "", text, flags=re.I).strip(" .:-")
+        if re.search(r"\b(list|available|options?)\b", text, re.I):
+            return ""
+        return text
+
+    async def _warehouse_options(self, data: dict[str, Any], cookies: dict | None, query: str = "") -> list[DraftFieldOption]:
+        fields = ["name", "warehouse_name", "company", "is_group", "disabled"]
+        try:
+            records = (await entity_resolution_service.erp.list_records("Warehouse", {}, fields, 100, cookies=cookies)).records
+        except Exception:
+            records = []
+        company = str(data.get("company") or "").strip().lower()
+        normalized_query = query.strip().lower()
+        options: list[DraftFieldOption] = []
+        for row in records:
+            name = str(row.get("name") or "")
+            label = str(row.get("warehouse_name") or name)
+            is_group = bool(row.get("is_group"))
+            disabled = bool(row.get("disabled"))
+            row_company = str(row.get("company") or "")
+            if normalized_query and normalized_query not in name.lower() and normalized_query not in label.lower():
+                continue
+            if company and row_company and row_company.lower() != company:
+                continue
+            invalid = is_group or disabled
+            options.append(DraftFieldOption(value=name, label=label if label == name else f"{name} — {label}", description="Leaf warehouse" if not invalid else "Cannot be used for transaction rows", disabled=invalid, reason="Group warehouses cannot be used on item rows." if is_group else "Warehouse is disabled." if disabled else None, metadata={"company": row_company, "is_group": is_group, "disabled": disabled}))
+        return options[:20]
+
     async def _remember_pending_draft(self, response: AssistantChatResponse) -> None:
         missing = next((part for part in response.parts if isinstance(part, MissingFieldsPart)), None)
         preview = next((part for part in response.parts if isinstance(part, RecordPreviewPart)), None)
+        field_options = next((part for part in response.parts if isinstance(part, DraftFieldOptionsPart)), None)
         if missing:
             await self.repository.save_pending_draft(response.conversation_id, {"doctype": missing.doctype, "operation": missing.operation, "record_name": missing.record_name, "data": missing.collected_data, "message_id": response.message_id})
+        elif field_options:
+            current = await self.repository.get_pending_draft(response.conversation_id)
+            if current:
+                current["message_id"] = response.message_id
+                current["status"] = f"awaiting_{field_options.fieldname}"
+                await self.repository.save_pending_draft(response.conversation_id, current)
         elif preview:
             await self.repository.clear_pending_draft(response.conversation_id)
 

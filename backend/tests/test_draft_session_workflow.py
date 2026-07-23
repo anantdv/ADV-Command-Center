@@ -76,3 +76,60 @@ def test_supplier_ranking_penalizes_legal_suffix_only_matches():
 
     assert abc.score >= 0.95
     assert ast.score <= 0.2
+
+def test_purchase_order_preserves_two_items_without_second_qty():
+    data = PayloadBuilder.extract_create("Purchase Order", "create a draft purchase order for zucci with item oven 45L and Midea Split ac")
+
+    assert data["supplier"] == "zucci"
+    assert len(data["items"]) == 2
+    assert data["items"][0]["item_query"].lower() == "oven 45 l"
+    assert data["items"][0]["qty"] == 1
+    assert data["items"][1]["item_query"] == "Midea Split ac"
+    assert data["items"][1]["qty"] == 1
+
+
+def test_purchase_order_selection_preserves_remaining_rows_and_blocks_preview_for_warehouse(client):
+    first = _send(client, "create a draft purchase order for zucci with item oven 45L and Midea Split ac")
+    conversation_id = first["conversation_id"]
+    resolution = _part(first, "child_rows_resolution_required")
+    supplier_row = next(row for row in resolution["rows"] if row["link_field"] == "supplier")
+    item_rows = [row for row in resolution["rows"] if row["link_field"] == "item_code"]
+    assert len(item_rows) == 2
+
+    after_supplier = _send(client, "Selected 001463", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"__parent__","row_id":supplier_row["row_id"],"fieldname":"supplier","selected_value":"001463"})
+    supplier_resolution = _part(after_supplier, "child_rows_resolution_required")
+    assert len([row for row in supplier_resolution["rows"] if row["link_field"] == "item_code"]) == 2
+
+    oven_row = next(row for row in supplier_resolution["rows"] if "oven" in row["query"].lower())
+    after_oven = _send(client, "Selected KA-HBEO4-00087", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"items","row_id":oven_row["row_id"],"fieldname":"item_code","selected_value":"KA-HBEO4-00087"})
+
+    assert after_oven["intent"] in {"child_rows_resolution_required", "draft_field_options"}
+    assert not any(part["type"] == "record_preview" for part in after_oven["parts"])
+    if after_oven["intent"] == "child_rows_resolution_required":
+        remaining = _part(after_oven, "child_rows_resolution_required")
+        assert any("midea" in row["query"].lower() for row in remaining["rows"])
+
+
+def test_contextual_warehouse_list_stays_inside_active_draft(client):
+    first = _send(client, "create a draft purchase order for zucci with items ITEM-001 qty1")
+    conversation_id = first["conversation_id"]
+    resolution = _part(first, "child_rows_resolution_required")
+    supplier_row = next(row for row in resolution["rows"] if row["link_field"] == "supplier")
+    after_supplier = _send(client, "Selected 001463", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"__parent__","row_id":supplier_row["row_id"],"fieldname":"supplier","selected_value":"001463"})
+    assert after_supplier["intent"] == "draft_field_options"
+
+    warehouses = _send(client, "show me warehouse list", conversation_id)
+    options = _part(warehouses, "draft_field_options")
+    assert warehouses["intent"] == "draft_field_options"
+    assert all(not option["metadata"].get("is_group") for option in options["options"] if not option.get("disabled"))
+    assert not any(part["type"] == "table" and part.get("title") == "Warehouse" for part in warehouses["parts"])
+
+
+def test_warehouse_detail_prompt_routes_to_exact_document(client):
+    data = _send(client, "show detail for Warehouse Goods In Transit - CTS")
+
+    assert data["intent"] == "get_record"
+    detail = _part(data, "record_detail")
+    assert detail["doctype"] == "Warehouse"
+    assert detail["name"] == "Goods In Transit - CTS"
+    assert not any(part["type"] == "table" and part.get("total_rows", 0) == 9 for part in data["parts"])

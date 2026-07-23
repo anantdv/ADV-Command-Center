@@ -187,6 +187,27 @@ class RecordDetailPart(BaseModel):
     available_workflow_actions: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DraftFieldOption(BaseModel):
+    value: str
+    label: str
+    description: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    disabled: bool = False
+    reason: str | None = None
+
+
+class DraftFieldOptionsPart(BaseModel):
+    type: Literal["draft_field_options"] = "draft_field_options"
+    draft_session_id: str
+    doctype: str
+    fieldname: str
+    label: str
+    table_field: str | None = None
+    row_ids: list[str] = Field(default_factory=list)
+    message: str
+    options: list[DraftFieldOption] = Field(default_factory=list)
+
+
 class ConfirmationPart(BaseModel):
     type: Literal["confirmation"] = "confirmation"
     confirmation_id: str
@@ -229,7 +250,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
 
 
 class AssistantChatResponse(BaseModel):

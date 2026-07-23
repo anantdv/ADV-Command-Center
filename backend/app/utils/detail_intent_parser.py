@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from app.utils.doctype_resolver import resolve_doctype
+from app.utils.doctype_resolver import DOCTYPE_ALIASES
 
 
 DOCUMENT_PREFIX_DOCTYPE_MAP = {
@@ -59,6 +60,23 @@ def parse_detail_intent(message: str) -> DetailIntent:
         return DetailIntent(True, doctype, name, 0.96)
     if name:
         return DetailIntent(True, None, name, 0.74, needs_doctype=True)
+    prefix = re.sub(r"^(?:show\s+(?:me\s+)?(?:detail|details)\s+for|show\s+(?:me\s+)?|open|view|inspect|details\s+of)\s+", "", text, flags=re.I).strip()
+    for alias, alias_doctype in sorted(DOCTYPE_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        match = re.match(rf"^{re.escape(alias)}\s+(.+)$", prefix, re.I)
+        if match:
+            candidate_name = match.group(1).strip(" .")
+            if candidate_name and not re.search(r"\b(list|all|records?)\b$", candidate_name, re.I):
+                return DetailIntent(True, alias_doctype, candidate_name, 0.95)
+    explicit = re.match(
+        r"^(?:show\s+(?:me\s+)?(?:detail|details)\s+for|show\s+(?:me\s+)?|open|view|inspect|details\s+of)\s+([A-Za-z][A-Za-z ]{1,40})\s+(.+)$",
+        text,
+        re.I,
+    )
+    if explicit:
+        candidate_doctype = resolve_doctype(explicit.group(1))
+        candidate_name = explicit.group(2).strip(" .")
+        if candidate_doctype and candidate_name and not re.search(r"\b(list|all|records?)\b$", candidate_name, re.I):
+            return DetailIntent(True, candidate_doctype, candidate_name, 0.93)
     return DetailIntent(False)
 
 
