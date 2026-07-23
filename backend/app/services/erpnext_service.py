@@ -159,7 +159,7 @@ class ERPNextService:
         except FilterNormalizationError as exc:
             raise AppError("I could not apply that filter safely. Please check the filter condition.", 422, {"doctype": doctype, "error": str(exc)}) from exc
         if settings.use_mock_data:
-            records = self._mock_records(doctype, filters or {})
+            records = self._apply_mock_filters(self._mock_records(doctype, filters or {}), filters or {})
             return ListRecordsResponse(
                 records=records[:limit],
                 total=min(len(records), limit),
@@ -396,14 +396,18 @@ class ERPNextService:
         fixtures = {
             "Customer": [
                 {"name": "CUST-0001", "customer_name": "Aster Retail Pvt Ltd", "customer_group": "Commercial", "territory": "India", "disabled": 0},
-                {"name": "CUST-0002", "customer_name": "Nimbus Labs India", "customer_group": "Commercial", "territory": "India", "disabled": 0},
+                {"name": "CUST-00045", "customer_name": "Biswajit Maity", "customer_group": "Individual", "territory": "India", "mobile_no": "9999999999", "email_id": "biswajit@example.com", "disabled": 0},
             ],
             "Supplier": [
                 {"name": "SUPP-0001", "supplier_name": "Acme Supplies", "supplier_group": "Local", "disabled": 0},
                 {"name": "001463", "supplier_name": "ZUCCI MODE LTD", "supplier_group": "Local", "disabled": 0},
+                {"name": "SUP-2026-00010", "supplier_name": "BNBM Kokopo", "supplier_group": "Local", "disabled": 0},
             ],
             "Item": [
                 {"name": "ITEM-001", "item_name": "Industrial Sensor", "item_group": "Products", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
+                {"name": "TCL-FRIDGE-TM-001", "item_name": "TCL Top Mount Fridge", "description": "TCL top mount refrigerator", "item_group": "Refrigerators", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
+                {"name": "AIR-FRYER-001", "item_name": "Air Fryer", "description": "Electric air fryer", "item_group": "Appliances", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
+                {"name": "TV-32-SMART", "item_name": "32 Inch Smart TV", "description": "32-inch LED Smart Television", "item_group": "Television", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "KA-HBEO4-00087", "item_name": "Home Basics Electric Oven 45L", "description": "Electric oven 45L", "item_group": "Appliances", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "HA-MSA1-00045", "item_name": "Midea Split AC 18000BTU", "description": "Midea split air conditioner", "brand": "Midea", "item_group": "Air Conditioners", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "MD-SPLIT-AC-001", "item_name": "Midea Split AC", "description": "Midea split air conditioner", "brand": "Midea", "item_group": "Air Conditioners", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
@@ -419,6 +423,39 @@ class ERPNextService:
             "Sales Invoice": [{"name": "SINV-2026-0418", "customer": "Aster Retail Pvt Ltd", "posting_date": "2026-07-01", "grand_total": 184500, "outstanding_amount": 184500, "status": "Overdue"}],
             "Purchase Invoice": [{"name": "PINV-2026-0101", "supplier": "Acme Supplies", "posting_date": "2026-07-01", "grand_total": 82500, "outstanding_amount": 20000, "status": "Unpaid"}],
             "Sales Order": [{"name": "SAL-ORD-2026-0001", "customer": "Aster Retail Pvt Ltd", "transaction_date": "2026-07-01", "grand_total": 225000, "status": "To Deliver and Bill"}],
-            "Purchase Order": [{"name": "PUR-ORD-2026-0001", "supplier": "Acme Supplies", "transaction_date": "2026-07-01", "grand_total": 125000, "status": "To Receive and Bill"}],
+            "Purchase Order": [
+                {"name": "PUR-ORD-2026-0001", "supplier": "Acme Supplies", "transaction_date": "2026-07-01", "grand_total": 125000, "status": "To Receive and Bill", "docstatus": 1, "per_received": 0, "per_billed": 0},
+                {"name": "PUR-ORD-2026-00624", "supplier": "SUP-2026-00010", "supplier_name": "BNBM Kokopo", "transaction_date": "2026-07-20", "grand_total": 1500, "status": "Draft", "docstatus": 0, "per_received": 0, "per_billed": 0},
+            ],
         }
         return fixtures.get(doctype, [{"name": f"{doctype}-0001", "status": "Open"}])
+
+    @staticmethod
+    def _apply_mock_filters(records: list[dict[str, Any]], filters: dict | list) -> list[dict[str, Any]]:
+        if not isinstance(filters, dict) or not filters:
+            return records
+        return [
+            record
+            for record in records
+            if all(ERPNextService._mock_match(record, field, value) for field, value in filters.items() if not str(field).startswith("_"))
+        ]
+
+    @staticmethod
+    def _mock_match(record: dict[str, Any], field: str, value: Any) -> bool:
+        actual = record.get(field)
+        if isinstance(value, list) and len(value) == 2:
+            op = str(value[0]).lower()
+            target = value[1]
+            if op == "like":
+                return str(target).strip("%").lower() in str(actual or "").lower()
+            if op == "in":
+                return actual in target
+            if op == "not in":
+                return actual not in target
+            if op == "<":
+                return float(actual or 0) < float(target)
+            if op == ">":
+                return float(actual or 0) > float(target)
+            if op == "=":
+                return actual == target
+        return actual == value

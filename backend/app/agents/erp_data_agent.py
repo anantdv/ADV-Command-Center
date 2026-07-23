@@ -1,3 +1,6 @@
+import logging
+from typing import Any
+
 from app.agents.router_agent import IntentResult
 from app.schemas.chat import (
     AssistantChatResponse,
@@ -10,10 +13,14 @@ from app.schemas.chat import (
 )
 from app.core.exceptions import AppError
 from app.tools.erp_tools import ERPReadTools
+from app.schemas.entity_resolution import EntitySearchContext, EntitySearchRequest
+from app.services.entity_resolution_service import entity_resolution_service
 from app.utils.chart_builder import try_build_chart
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 from app.utils.table_formatter import build_table_part
+
+logger = logging.getLogger(__name__)
 
 
 class ERPDataAgent:
@@ -39,16 +46,17 @@ class ERPDataAgent:
             return await self.handle_document_detail(intent.doctype, intent.record_name, cookies, conversation_id)
         else:
             tool_name = "list_records"
-            result = await self.tools.list_records(
+            resolved_filters = await self._resolve_read_filters(intent.doctype, intent.filters or {}, cookies)
+            result = await self._list_with_business_status(
                 intent.doctype,
-                intent.filters,
+                resolved_filters,
                 intent.fields,
                 intent.limit,
-                cookies=cookies,
-                date_range=intent.date_range,
+                cookies,
+                intent.date_range,
             )
             count = result["record_count"]
-            qualifier = "overdue " if (intent.filters or {}).get("status") == "Overdue" else ""
+            qualifier = "pending " if (resolved_filters or {}).get("_business_status", {}).get("term") == "pending" else "overdue " if (resolved_filters or {}).get("status") == "Overdue" else ""
             summary = f"I found {count} {qualifier}{intent.doctype} record{'s' if count != 1 else ''} you have permission to view."
             title = intent.doctype
 
@@ -170,6 +178,67 @@ class ERPDataAgent:
             SuggestedAction(label="Export CSV", action_type="export_csv"),
             SuggestedAction(label="Refine Filters", action_type="refine_filters"),
         ]
+
+    async def _resolve_read_filters(self, doctype: str, filters: dict[str, Any], cookies: dict | None) -> dict[str, Any]:
+        resolved = dict(filters or {})
+        link_fields = {"Purchase Order": {"supplier": "Supplier"}, "Purchase Invoice": {"supplier": "Supplier"}, "Sales Order": {"customer": "Customer"}, "Sales Invoice": {"customer": "Customer"}, "Quotation": {"party_name": "Customer"}}
+        resolved_links: dict[str, Any] = {}
+        for field, target in link_fields.get(doctype, {}).items():
+            raw = resolved.get(field)
+            query = self._like_value(raw)
+            if not query:
+                continue
+            search = await entity_resolution_service.search(EntitySearchRequest(doctype=target, query=query, context=EntitySearchContext(parent_doctype=doctype), limit=8), cookies)
+            status, selected = entity_resolution_service.classify(search.matches)
+            if selected:
+                resolved[field] = selected
+                resolved_links[field] = {"query": query, "value": selected, "label": search.matches[0].label if search.matches else selected, "status": status}
+        if resolved_links:
+            resolved["_resolved_link_filters"] = resolved_links
+        logger.info("erp_read_filters_resolved", extra={"doctype": doctype, "business_status_term": (resolved.get("_business_status") or {}).get("term"), "resolved_link_filters": resolved_links, "final_query_filters": {k: v for k, v in resolved.items() if not k.startswith("_")}})
+        return resolved
+
+    async def _list_with_business_status(
+        self,
+        doctype: str,
+        filters: dict[str, Any],
+        fields: list[str] | None,
+        limit: int,
+        cookies: dict | None,
+        date_range: dict | None,
+    ) -> dict[str, Any]:
+        business = filters.get("_business_status") if isinstance(filters, dict) else None
+        if not isinstance(business, dict) or not business.get("branches"):
+            public_filters = {key: value for key, value in (filters or {}).items() if not str(key).startswith("_")}
+            return await self.tools.list_records(doctype, public_filters, fields, limit, cookies=cookies, date_range=date_range)
+        records: list[dict[str, Any]] = []
+        permission: dict[str, Any] | None = None
+        seen: set[str] = set()
+        base = {key: value for key, value in filters.items() if not str(key).startswith("_")}
+        for branch in business.get("branches") or []:
+            branch_filters = {**base, **branch}
+            result = await self.tools.list_records(doctype, branch_filters, fields, limit, cookies=cookies, date_range=None)
+            permission = permission or result.get("permission")
+            for record in result.get("records") or []:
+                name = str(record.get("name") or "")
+                if name and name not in seen:
+                    records.append(record)
+                    seen.add(name)
+                if len(records) >= limit:
+                    break
+            if len(records) >= limit:
+                break
+        requested_fields = fields or []
+        columns = list(records[0].keys()) if records else requested_fields
+        return {"records": records, "columns": columns, "record_count": len(records), "source": SourceMeta(source_type="doctype", source_name=doctype, record_count=len(records), filters=filters, doctype=doctype, fields=requested_fields).model_dump(), "permission": permission or PermissionMeta(allowed=True).model_dump()}
+
+    @staticmethod
+    def _like_value(value: Any) -> str | None:
+        if isinstance(value, list) and len(value) == 2 and str(value[0]).lower() == "like":
+            return str(value[1]).strip("% ")
+        if isinstance(value, str) and value:
+            return value.strip("% ")
+        return None
 
     @staticmethod
     def _detail_actions() -> list[SuggestedAction]:

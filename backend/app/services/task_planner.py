@@ -93,8 +93,9 @@ class TaskPlanner:
 
     def _steps(self, plan_type: PlanType, intent: IntentResult | None, followup: dict | None) -> list[PlanStep]:
         if plan_type == PlanType.DRAFT_CREATE:
+            parent_label = self._parent_resolution_label(intent.doctype if intent else None)
             return [
-                self._step("1", PlanAction.RESOLVE_ENTITY, "Resolve parent Link fields"),
+                self._step("1", PlanAction.RESOLVE_ENTITY, parent_label),
                 self._step("2", PlanAction.RESOLVE_ITEMS, "Resolve child rows and items", ["1"]),
                 self._step("3", PlanAction.RESOLVE_WAREHOUSE, "Resolve warehouse and defaults", ["2"]),
                 self._step("4", PlanAction.DISCOVER_RELATIONSHIPS, "Inspect related defaults and dependencies", ["3"]),
@@ -140,6 +141,18 @@ class TaskPlanner:
                 self._step("2", PlanAction.CONFIRM, "Require workflow confirmation", ["1"]),
             ]
         return [self._step("1", PlanAction.VALIDATE, "Classify command")]
+
+    @staticmethod
+    def _parent_resolution_label(doctype: str | None) -> str:
+        if doctype in {"Sales Order", "Sales Invoice", "Delivery Note"}:
+            return "Resolve Customer"
+        if doctype in {"Purchase Order", "Purchase Invoice", "Purchase Receipt"}:
+            return "Resolve Supplier"
+        if doctype == "Quotation":
+            return "Resolve Quotation Party"
+        if doctype == "Stock Entry":
+            return "Resolve warehouses"
+        return "Resolve parent Link fields"
 
     def create_confirmation_plan(self, confirmation: dict, source_message: str | None = None) -> ExecutionPlan:
         now = utc_now()

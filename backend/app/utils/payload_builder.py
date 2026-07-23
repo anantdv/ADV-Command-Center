@@ -1,6 +1,8 @@
 import re
 from typing import Any
 
+from app.utils.transaction_row_parser import transaction_row_parser
+
 
 class PayloadBuilder:
     """Deterministic first-pass extraction. TODO: replace with validated structured LLM extraction."""
@@ -44,7 +46,18 @@ class PayloadBuilder:
             data["project_name"] = base
         elif doctype == "Task":
             data["subject"] = base
-        cls._extract_items(text, data)
+        if doctype in {
+            "Purchase Order",
+            "Purchase Invoice",
+            "Purchase Receipt",
+            "Sales Order",
+            "Sales Invoice",
+            "Quotation",
+            "Delivery Note",
+            "Material Request",
+            "Stock Entry",
+        }:
+            cls._extract_items(text, data)
         cls._extract_document_refs(text, data)
         cls._extract_fields(text,data)
         return {key:value.strip() if isinstance(value,str) else value for key,value in data.items() if value not in (None,"")}
@@ -67,12 +80,12 @@ class PayloadBuilder:
 
     @staticmethod
     def _party_after(lower: str, text: str, keyword: str) -> str | None:
-        match = re.search(rf"\b{keyword}\s*:?\s+(.+?)(?=\s+(?:for\s+items?|with|bill number|po number|containing|items?|qty|rate|warehouse|company|currency)\b|$)", text, re.I)
+        match = re.search(rf"\b{keyword}\s*:?\s+(.+?)(?=\s+(?:for\s+\d|for\s+items?|with|bill number|po number|containing|items?|qty|rate|warehouse|company|currency)\b|$)", text, re.I)
         if match:
             return _clean_party(match.group(1))
         if f" for " in lower:
             tail = re.split(r"\bfor\b", text, maxsplit=1, flags=re.I)[-1]
-            tail = re.split(r"\b(?:with|containing|for\s+items?|items?)\b", tail, maxsplit=1, flags=re.I)[0]
+            tail = re.split(r"\b(?:with|containing|for\s+\d|for\s+items?|items?)\b", tail, maxsplit=1, flags=re.I)[0]
             return _clean_party(re.sub(rf"^(?:{keyword}\s+)?", "", tail.strip(), flags=re.I)) or None
         return None
 
@@ -100,47 +113,13 @@ class PayloadBuilder:
 
     @staticmethod
     def _extract_natural_items(text: str) -> list[dict[str, Any]]:
-        has_item_context = bool(re.search(r"\b(?:items?|containing)\b", text, re.I))
-        body_parts = re.split(r"\b(?:items?|containing|with)\b", text, maxsplit=1, flags=re.I)
-        body = body_parts[-1] if len(body_parts) > 1 else text
-        body = re.sub(r"\s+\band\b\s+", ", ", body, flags=re.I)
-        body = body.replace(";", "\n")
-        lines = [line.strip(" -•\t") for line in body.splitlines() if line.strip(" -•\t")]
-        if len(lines) <= 1:
-            lines = [part.strip() for part in re.split(r"\s*,\s*", body) if part.strip()]
-        items: list[dict[str, Any]] = []
-        for line in lines:
-            clean = re.sub(r"^(?:supplier|customer|items?)\s*:\s*", "", line, flags=re.I).strip()
-            clean = clean.strip(" :-")
-            clean = re.sub(r"^(?:items?|item)\s+", "", clean, flags=re.I).strip()
-            clean = re.sub(r"^item\s+\d+\s+(?=[A-Za-z])", "", clean, flags=re.I).strip()
-            clean = re.sub(r"^\d+\s+(?!(?:inch|inches|l|ltr|litre|liter|kg|mm|cm)\b)(?=[A-Za-z])", "", clean, flags=re.I).strip()
-            match = re.search(
-                r"(?:(?P<leading_qty>\d+(?:\.\d+)?)\s+(?P<leading_unit>bags?|cartons?|boxes|pcs|pieces|units?)\s+)?(?P<name>[A-Za-z0-9][A-Za-z0-9 /&().-]{1,60}?)(?:\s+(?:qty|quantity|x|units?|pcs|pieces)\s*(?P<qty>\d+(?:\.\d+)?))?(?:\s*(?:@|at|rate)\s*(?P<rate>\d+(?:\.\d+)?))?(?:\s+(?:each|ea))?(?:\s+warehouse\s+(?P<warehouse>.+?))?$",
-                clean,
-                re.I,
-            )
-            if not match:
-                continue
-            if not match.group("qty") and not match.group("leading_qty") and not has_item_context:
-                continue
-            name = _normalize_item_query(match.group("name").strip(" :-"))
-            if name.lower() in {"supplier", "customer", "items", "item", "rate"}:
-                continue
-            qty = float(match.group("qty") or match.group("leading_qty") or 1)
-            rate = float(match.group("rate") or 0)
-            row: dict[str, Any] = {"item_query": name, "source_text": clean, "description": name, "qty": qty, "rate": rate, "amount": qty * rate}
-            if match.group("leading_unit"):
-                row["uom_query"] = match.group("leading_unit")
-            if match.group("warehouse"):
-                row["warehouse_query"] = match.group("warehouse").strip()
-            items.append(row)
-        return items
+        return transaction_row_parser.parse_many(text)
 
     @staticmethod
     def _preclean(prompt: str) -> str:
         text = " ".join(prompt.strip().split())
         text = re.sub(r"\bqty(?=\d)", "qty ", text, flags=re.I)
+        text = re.sub(r"\bprice(?=\d)", "price ", text, flags=re.I)
         text = re.sub(r"(?<=\d)(inch|inches|ltr|l)\b", r" \1", text, flags=re.I)
         return text
 
@@ -161,6 +140,7 @@ class PayloadBuilder:
 
 def _clean_party(value: str) -> str:
     value = re.sub(r"^(?:the\s+|selected\s+|supplier\s+|customer\s+)+", "", value.strip(), flags=re.I)
+    value = re.split(r"\s*,\s*", value, maxsplit=1)[0]
     value = re.sub(r"\b(?:and|please|this|selected|item|items?)\b.*$", "", value, flags=re.I).strip(" ,:-")
     return value
 

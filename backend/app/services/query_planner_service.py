@@ -15,6 +15,7 @@ from app.utils.entity_extractor import extract_entity_filters, extract_record_na
 from app.utils.field_alias_mapper import get_default_fields, map_field_alias
 from app.utils.query_plan_validator import validate_query_plan
 from app.utils.aggregation_planner import build_rule_based_aggregation_plan, detect_aggregation_intent
+from app.utils.business_status_resolver import business_status_resolver
 
 REPORT_ALIASES = {
     "stock balance": "Stock Balance",
@@ -206,22 +207,10 @@ def _match_alias(text: str, aliases: dict[str, str]) -> str | None:
 
 
 def _status_filters(text: str, doctype: str) -> dict[str, Any]:
-    if doctype in {"Sales Invoice", "Purchase Invoice"}:
-        if "overdue" in text:
-            return {"status": "overdue"}
-        if "unpaid" in text:
-            return {"status": "unpaid"}
-        if re.search(r"\bpaid\b", text):
-            return {"outstanding_amount": ["=", 0]}
-        if "draft" in text:
-            return {"docstatus": 0}
-        if "submitted" in text:
-            return {"docstatus": 1}
-    if doctype in {"Sales Order", "Purchase Order"}:
-        if "open" in text:
-            return {"status": "open"}
-        if "closed" in text:
-            return {"status": "Closed"}
+    term = business_status_resolver.detect_term(text, doctype)
+    resolved = business_status_resolver.resolve(doctype, term)
+    if resolved:
+        return resolved
     if doctype == "Item" and "disabled" in text:
         return {"disabled": 1}
     if doctype == "Customer" and "active" in text:

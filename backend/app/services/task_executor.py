@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import Awaitable, Callable, TypeVar
 
 from app.core.audit import AuditEvent, log_audit_event
-from app.schemas.task_plan import ExecutionPlan, PlanPart, PlanStatus, PlanStepView
+from app.schemas.task_plan import ExecutionPlan, PlanAction, PlanPart, PlanStatus, PlanStepView
 from app.services.task_plan_repository import InMemoryTaskPlanRepository, task_plan_repository
 from app.utils.datetime import utc_now
 
@@ -77,6 +77,21 @@ class TaskExecutor:
         else:
             status = PlanStatus.COMPLETED
             resume = None
+        waiting_action = self._waiting_action_for_result(result)
+        if status == PlanStatus.WAITING_USER and waiting_action:
+            for step in plan.steps:
+                if step.action == waiting_action:
+                    step.status = PlanStatus.WAITING_USER
+                    plan.current_step_id = step.id
+                    break
+                if step.status in {PlanStatus.PENDING, PlanStatus.RUNNING}:
+                    step.status = PlanStatus.COMPLETED
+                    step.completed_at = utc_now()
+            plan.status = status
+            plan.resume_point = resume
+            plan.updated_at = utc_now()
+            await self.repository.save(plan)
+            return
         for step in plan.steps:
             if step.status == PlanStatus.RUNNING:
                 step.status = PlanStatus.COMPLETED
@@ -92,6 +107,25 @@ class TaskExecutor:
         plan.resume_point = resume
         plan.updated_at = utc_now()
         await self.repository.save(plan)
+
+    @staticmethod
+    def _waiting_action_for_result(result: object) -> PlanAction | None:
+        intent = getattr(result, "intent", "")
+        parts = getattr(result, "parts", []) or []
+        if intent == "draft_field_options":
+            option_part = next((part for part in parts if getattr(part, "type", "") == "draft_field_options"), None)
+            if getattr(option_part, "fieldname", "") == "warehouse":
+                return PlanAction.RESOLVE_WAREHOUSE
+            return PlanAction.RESOLVE_ENTITY
+        if intent != "child_rows_resolution_required":
+            return None
+        resolution = next((part for part in parts if getattr(part, "type", "") == "child_rows_resolution_required"), None)
+        rows = getattr(resolution, "rows", []) or []
+        if any(str(getattr(row, "row_id", "")).startswith("parent-") or getattr(row, "link_field", "") != "item_code" for row in rows):
+            return PlanAction.RESOLVE_ENTITY
+        if rows:
+            return PlanAction.RESOLVE_ITEMS
+        return None
 
     async def _mark(self, plan: ExecutionPlan, status: PlanStatus) -> None:
         plan.status = status
@@ -137,4 +171,3 @@ def plan_part(plan: ExecutionPlan) -> PlanPart:
 
 
 task_executor = TaskExecutor()
-

@@ -37,6 +37,9 @@ def normalize_filters(doctype: str, raw_filters: dict[str, Any] | list[Any] | No
     if isinstance(raw_filters, list):
         raw_filters = _list_to_dict(raw_filters)
     for raw_field, raw_value in (raw_filters or {}).items():
+        if str(raw_field).startswith("_"):
+            output[str(raw_field)] = raw_value
+            continue
         field = map_field_alias(doctype, str(raw_field))
         if str(raw_field) == "month" and isinstance(raw_value, str):
             continue

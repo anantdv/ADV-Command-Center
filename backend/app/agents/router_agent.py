@@ -21,6 +21,7 @@ from app.schemas.aggregation import AggregationPlan
 from app.schemas.report_composer import ReportComposerPlan
 from app.services.query_planner_service import QueryPlannerService
 from app.utils.report_composer_planner import ReportComposerPlanner
+from app.utils.business_status_resolver import business_status_resolver
 
 DOCTYPE_ALIASES = {
     "support ticket": "Issue",
@@ -30,8 +31,12 @@ DOCTYPE_ALIASES = {
     "purchase invoice": "Purchase Invoice",
     "sales invoices": "Sales Invoice",
     "sales invoice": "Sales Invoice",
+    "si": "Sales Invoice",
+    "s i": "Sales Invoice",
     "purchase orders": "Purchase Order",
     "purchase order": "Purchase Order",
+    "po": "Purchase Order",
+    "p o": "Purchase Order",
     "delivery notes": "Delivery Note",
     "delivery note": "Delivery Note",
     "delivery document": "Delivery Note",
@@ -207,7 +212,7 @@ class RouterAgent:
 
     @staticmethod
     def _with_date_context(intent: IntentResult, message: str, date_range_context: dict[str, str] | None) -> IntentResult:
-        if date_range_context and not intent.date_range and not parse_date_range_phrase(message):
+        if date_range_context and not intent.date_range and not parse_date_range_phrase(message) and not re.search(r"\ball\b", message, re.I):
             intent.date_range = date_range_context
         return intent
 
@@ -230,13 +235,27 @@ class RouterAgent:
                 "donut": "donut_chart",
                 "area": "area_chart",
             }.get(str(command.chart_type or "").lower())
+        filters = dict(command.filters or {})
+        if command.date_range and command.doctype:
+            date_field = {
+                "Sales Invoice": "posting_date",
+                "Purchase Invoice": "posting_date",
+                "Sales Order": "transaction_date",
+                "Purchase Order": "transaction_date",
+                "Quotation": "transaction_date",
+                "Delivery Note": "posting_date",
+                "Purchase Receipt": "posting_date",
+                "Material Request": "transaction_date",
+            }.get(command.doctype)
+            if date_field and date_field not in filters and command.date_range.get("from_date") and command.date_range.get("to_date"):
+                filters[date_field] = ["between", [command.date_range["from_date"], command.date_range["to_date"]]]
         return IntentResult(
             intent=mapped_intent,  # type: ignore[arg-type]
             doctype=command.doctype,
             report_name=command.report_name,
             analytics_key=command.analytics_key,
             record_name=command.record_name,
-            filters=command.filters,
+            filters=filters,
             fields=command.fields or None,
             limit=50 if mapped_intent in {"run_analytics", "generate_chart"} else 20,
             confidence=command.confidence,
@@ -334,6 +353,19 @@ class RouterAgent:
         filters = self._filters(text, doctype)
         date_range = parse_date_range_phrase(text)
         filters = {**filters, **self._value_filters(text)}
+        if date_range:
+            date_field = {
+                "Sales Invoice": "posting_date",
+                "Purchase Invoice": "posting_date",
+                "Sales Order": "transaction_date",
+                "Purchase Order": "transaction_date",
+                "Quotation": "transaction_date",
+                "Delivery Note": "posting_date",
+                "Purchase Receipt": "posting_date",
+                "Material Request": "transaction_date",
+            }.get(doctype)
+            if date_field and date_range.get("from_date") and date_range.get("to_date"):
+                filters[date_field] = ["between", [date_range["from_date"], date_range["to_date"]]]
         record_name = self._record_name(text, doctype)
         if record_name:
             return IntentResult(
@@ -359,7 +391,16 @@ class RouterAgent:
     @staticmethod
     def _planned_create_intent(message: str) -> IntentResult | None:
         text = " ".join(message.lower().split())
-        if not (re.search(r"\b(create|add|draft|prepare|make|raise|enter)\b", text) or re.search(r"\bgenerate\s+(?:a\s+)?draft\b", text)):
+        explicit_create = bool(re.search(r"\b(create|add|draft|prepare|make|raise|enter)\b", text) or re.search(r"\bgenerate\s+(?:a\s+)?draft\b", text))
+        implicit_transaction_create = bool(
+            re.match(
+                r"^(?:sales invoice|purchase invoice|sales order|purchase order|quotation|delivery note|purchase receipt|material request|stock entry)\b",
+                text,
+            )
+            and not re.search(r"\b(show|list|open|view|get|find|report|chart|trend|summary)\b", text)
+            and re.search(r"\b(for|with|item|items?|qty|quantity|price|rate|@|at)\b", text)
+        )
+        if not (explicit_create or implicit_transaction_create):
             return None
         doctype = RouterAgent._match_alias(text, DOCTYPE_ALIASES)
         if not doctype:
@@ -391,6 +432,20 @@ class RouterAgent:
         source_type = "report" if plan.report_name else ("doctype" if plan.doctype else "chat_result")
         source_name = plan.report_name or plan.doctype or "Previous chat result"
         operation = plan.operation if plan.operation in {"create", "update"} else None
+        filters = dict(plan.normalized_filters or plan.filters or {})
+        if plan.date_range and plan.doctype:
+            date_field = {
+                "Sales Invoice": "posting_date",
+                "Purchase Invoice": "posting_date",
+                "Sales Order": "transaction_date",
+                "Purchase Order": "transaction_date",
+                "Quotation": "transaction_date",
+                "Delivery Note": "posting_date",
+                "Purchase Receipt": "posting_date",
+                "Material Request": "transaction_date",
+            }.get(plan.doctype)
+            if date_field and date_field not in filters and plan.date_range.get("from_date") and plan.date_range.get("to_date"):
+                filters[date_field] = ["between", [plan.date_range["from_date"], plan.date_range["to_date"]]]
         return IntentResult(
             intent=plan.intent if plan.intent != "blocked_write" else "blocked_write",
             operation=operation,
@@ -398,7 +453,7 @@ class RouterAgent:
             report_name=plan.report_name,
             record_name=plan.record_name,
             data=plan.data or None,
-            filters=plan.normalized_filters or plan.filters or {},
+            filters=filters,
             fields=plan.fields or None,
             limit=plan.limit,
             confidence=plan.confidence,
@@ -407,7 +462,7 @@ class RouterAgent:
             file_format=plan.file_format,
             source_type=source_type if plan.intent == "generate_file" else None,
             source_name=source_name if plan.intent == "generate_file" else None,
-            date_range=None if plan.normalized_filters else plan.date_range,
+            date_range=None if filters else plan.date_range,
             widget_type=plan.widget_type,
             extraction_method="rules" if plan.extraction_method == "rules" else "vertex_gemini",
             llm_confidence=plan.confidence if plan.extraction_method != "rules" else None,
@@ -468,22 +523,9 @@ class RouterAgent:
 
     @staticmethod
     def _filters(text: str, doctype: str) -> dict[str, Any]:
-        if doctype in {"Sales Invoice", "Purchase Invoice"}:
-            if "overdue" in text:
-                return {"status": "Overdue"}
-            if "unpaid" in text:
-                return {"status": ["in", ["Unpaid", "Overdue"]]}
-            if "paid" in text:
-                return {"outstanding_amount": ["=", 0]}
-            if "draft" in text:
-                return {"docstatus": 0}
-            if "submitted" in text:
-                return {"docstatus": 1}
-        if doctype in {"Sales Order", "Purchase Order"}:
-            if "open" in text:
-                return {"status": ["not in", ["Closed", "Completed", "Cancelled"]]}
-            if "closed" in text:
-                return {"status": "Closed"}
+        status = business_status_resolver.resolve(doctype, business_status_resolver.detect_term(text, doctype))
+        if status:
+            return status
         if doctype == "Item" and "disabled" in text:
             return {"disabled": 1}
         if doctype == "Customer" and "active" in text:
