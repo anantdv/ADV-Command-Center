@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query, Request
 
 from app.dependencies import CurrentUserDep, get_frappe_client, get_frappe_cookies
 from app.schemas.common import ApiResponse
-from app.schemas.workflow import ApplyWorkflowActionRequest, ApplyWorkflowActionResponse, PendingApprovalsResponse, WorkflowAction, WorkflowDocumentDetail
+from app.schemas.workflow import ApplyWorkflowActionRequest, ApplyWorkflowActionResponse, PendingApprovalsResponse, WorkflowAction, WorkflowActionPreviewRequest, WorkflowActionPreviewResponse, WorkflowDocumentDetail
 from app.services.workflow_service import WorkflowService
 
 router = APIRouter(prefix="/workflow", tags=["Workflow"])
@@ -42,6 +42,11 @@ async def document(doctype: str, name: str, request: Request, user: CurrentUserD
 @router.get("/documents/{doctype}/{name}/actions", response_model=ApiResponse[list[WorkflowAction]])
 async def document_actions(doctype: str, name: str, request: Request, user: CurrentUserDep) -> ApiResponse[list[WorkflowAction]]:
     return ApiResponse(data=await service().get_available_actions(doctype, name, get_frappe_cookies(request), user.user))
+
+
+@router.post("/action-preview", response_model=ApiResponse[WorkflowActionPreviewResponse])
+async def action_preview(payload: WorkflowActionPreviewRequest, request: Request, user: CurrentUserDep) -> ApiResponse[WorkflowActionPreviewResponse]:
+    return ApiResponse(data=await service().preview_action(payload, get_frappe_cookies(request), user.user))
 
 
 @router.post("/apply-action", response_model=ApiResponse[ApplyWorkflowActionResponse])

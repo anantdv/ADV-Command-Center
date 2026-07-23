@@ -5,8 +5,9 @@ import { EmptyState } from '../components/common/EmptyState'
 import { ErrorState } from '../components/common/ErrorState'
 import { LoadingState } from '../components/common/LoadingState'
 import { workflowService } from '../services/workflowService'
-import type { PendingWorkflowDocument, WorkflowAction, WorkflowDocumentDetail } from '../types/workflow'
+import type { ApplyWorkflowActionResponse, PendingWorkflowDocument, WorkflowAction, WorkflowActionPreviewResponse, WorkflowDocumentDetail } from '../types/workflow'
 import { cn } from '../utils/cn'
+import { WorkflowActionConfirmDialog } from '../components/workflow/WorkflowActionConfirmDialog'
 
 const preferredDoctypes = ['Purchase Order', 'Purchase Invoice', 'Expense Claim', 'Leave Application', 'Sales Order']
 
@@ -18,6 +19,7 @@ export function ApprovalsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
+  const [preview, setPreview] = useState<WorkflowActionPreviewResponse | null>(null)
 
   async function load() {
     setLoading(true); setError(null)
@@ -51,11 +53,15 @@ export function ApprovalsPage() {
     if (!selected) return
     setActioning(action.action)
     try {
-      await workflowService.applyAction({ doctype: selected.doctype, name: selected.name, action: action.action })
-      await load()
+      setPreview(await workflowService.previewAction({ doctype: selected.doctype, name: selected.name, action: action.action }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Could not apply ${action.action}.`)
+      setError(err instanceof Error ? err.message : `Could not prepare ${action.action}.`)
     } finally { setActioning(null) }
+  }
+
+  async function afterApplied(_response: ApplyWorkflowActionResponse) {
+    setPreview(null)
+    await load()
   }
 
   if (loading) return <LoadingState table />
@@ -87,6 +93,7 @@ export function ApprovalsPage() {
         {detailLoading ? <LoadingState /> : detail ? <ApprovalDetail detail={detail} actioning={actioning} onApply={apply} /> : <EmptyState title="Select an approval" description="Choose a document from the inbox to review summary, workflow history, comments, attachments, and actions." />}
       </section>
     </div>}
+    <WorkflowActionConfirmDialog preview={preview} onClose={() => setPreview(null)} onApplied={response => void afterApplied(response)}/>
   </div>
 }
 

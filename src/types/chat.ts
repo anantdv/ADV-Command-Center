@@ -151,6 +151,20 @@ export type ConfirmationPart = {
   cancel_label: string
   risk_level: 'medium' | 'high'
 }
+export type WorkflowConfirmationPart = {
+  type: 'workflow_confirmation'
+  doctype: string
+  name: string
+  action: string
+  current_state?: string | null
+  currentState?: string | null
+  next_state?: string | null
+  nextState?: string | null
+  title?: string | null
+  summary?: Record<string, unknown>
+  confirmation_id: string
+  confirmationId?: string
+}
 export type OcrMappingPreviewPart = DocumentMappingPreview & { type: 'ocr_mapping_preview' }
 export type EntityMatch = {
   value: string
@@ -178,7 +192,7 @@ export type ChildRowsResolutionPart = {
     message?: string | null
   }>
 }
-export type ChatMessagePart = TextPart | ExecutionPlanPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
+export type ChatMessagePart = TextPart | ExecutionPlanPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | WorkflowConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
 
 export type SuggestedAction = {
   label: string

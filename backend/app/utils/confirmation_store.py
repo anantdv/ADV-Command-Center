@@ -12,8 +12,8 @@ class ConfirmationStore:
         self._items: dict[str, dict[str, Any]] = {}
         self._lock = Lock()
 
-    def create(self, payload: dict, expires_in_seconds: int = 900) -> str:
-        confirmation_id = f"conf_{uuid4().hex[:16]}"
+    def create(self, payload: dict, expires_in_seconds: int = 900, prefix: str = "conf") -> str:
+        confirmation_id = f"{prefix}_{uuid4().hex[:16]}"
         now = utc_now()
         with self._lock:
             self._items[confirmation_id] = {**payload, "confirmation_id":confirmation_id, "created_at":now.isoformat(), "expires_at":(now + timedelta(seconds=expires_in_seconds)).isoformat()}

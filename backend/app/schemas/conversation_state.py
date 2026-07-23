@@ -39,6 +39,8 @@ class ConversationContext(BaseModel):
     report_session_id: str | None = None
     active_doctype: str | None = None
     active_document: str | None = None
+    active_workflow_state: str | None = None
+    active_workflow_actions: list[dict[str, Any]] = Field(default_factory=list)
     active_module: str | None = None
     pending_action: str | None = None
     expected_field: str | None = None

@@ -233,6 +233,10 @@ class ERPNextService:
                 "customer", "supplier", "party_name", "customer_name", "supplier_name", "item_name",
                 "posting_date", "transaction_date", "grand_total", "outstanding_amount", "currency",
             ]
+            workflow_actions = []
+            if doctype in {"Sales Invoice", "Purchase Order"} and (record.get("status") in {None, "Draft", "Pending", "Pending Approval"}):
+                workflow_actions = [{"action": "Approve", "next_state": "Approved"}, {"action": "Reject", "next_state": "Rejected"}]
+                record.setdefault("workflow_state", "Pending Approval")
             return DocumentDetailResponse(
                 doctype=doctype,
                 name=name,
@@ -243,7 +247,7 @@ class ERPNextService:
                 summary={key: record[key] for key in summary_keys if key in record},
                 fields=record,
                 items=record.get("items") or [],
-                available_workflow_actions=[],
+                available_workflow_actions=workflow_actions,
                 permission=FULL_PERMISSION,
             )
         data = self._unwrap(

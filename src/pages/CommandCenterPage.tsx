@@ -19,11 +19,14 @@ import { PinTargetDialog } from '../components/results/PinTargetDialog'
 import { useConfirmDocumentDraft } from '../hooks/api/useDocumentIntake'
 import { useConversationMessages, useConversations, useSendChatMessage } from '../hooks/api/useChat'
 import { usePinChatResultToDashboard } from '../hooks/api/useDashboard'
+import { workflowService } from '../services/workflowService'
 import { useAppStore } from '../store/useAppStore'
 import type { AssistantChatResponse, ChatMessage, SourceMeta, SuggestedAction } from '../types/chat'
 import type { DashboardWidgetSource } from '../types/dashboard'
 import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
+import type { WorkflowActionPreviewResponse } from '../types/workflow'
+import { WorkflowActionConfirmDialog } from '../components/workflow/WorkflowActionConfirmDialog'
 
 type CommandSource = 'typed' | 'voice' | 'generated_action' | 'suggested_prompt' | 'table_row' | 'retry' | 'overview'
 type ActiveReportContext = {
@@ -72,6 +75,7 @@ export function CommandCenterPage() {
   const [showIntake,setShowIntake] = useState(false)
   const [intakePreview,setIntakePreview] = useState<DocumentPreview|null>(null)
   const [uiAction,setUiAction]=useState<{type:string;payload:Record<string,unknown>}|null>(null)
+  const [workflowPreview,setWorkflowPreview]=useState<WorkflowActionPreviewResponse|null>(null)
   const confirmIntake=useConfirmDocumentDraft()
   const endRef=useRef<HTMLDivElement>(null)
   const autoRunHandledRef=useRef(false)
@@ -187,9 +191,12 @@ export function CommandCenterPage() {
     }
     if(suggestion.type==='workflow_action'){
       const action=String(payload.action||suggestion.label)
-      const doctype=String(payload.doctype||source?.doctype||source?.source_name||'document')
+      const doctype=String(payload.doctype||source?.doctype||source?.source_name||'')
       const name=String(payload.name||payload.recordName||'')
-      executeCommand({text:`${action} ${doctype} ${name}`.trim(),source:'generated_action',structuredAction:payload})
+      if(!doctype||!name||!action)return
+      workflowService.previewAction({doctype,name,action})
+        .then(setWorkflowPreview)
+        .catch(error=>setTransientResponse(localAssistantError(error instanceof Error ? error.message : 'Could not prepare workflow confirmation.')))
       return
     }
     if(suggestion.type==='crud_confirmation'){
@@ -250,6 +257,7 @@ export function CommandCenterPage() {
     <RefineFiltersDialog open={uiAction?.type==='filters'} filters={(uiAction?.payload.filters as Record<string,unknown>)||{}} onClose={()=>setUiAction(null)}/>
     <SaveReportViewDialog open={uiAction?.type==='save'} onClose={()=>setUiAction(null)}/>
     <PinTargetDialog open={uiAction?.type==='pin'} onClose={()=>setUiAction(null)} onPin={()=>setUiAction(null)}/>
+    <WorkflowActionConfirmDialog preview={workflowPreview} onClose={()=>setWorkflowPreview(null)} onApplied={response=>setTransientResponse(localAssistantWorkflowApplied(response.doctype,response.name,response.action,response.newState||response.new_state||response.status||'updated'))}/>
   </div>
 }
 
@@ -305,6 +313,12 @@ function localAssistantOcrPreview(preview:DocumentPreview):AssistantChatResponse
   const id=`local_${Date.now()}`
   const content='I extracted this document. Please review the draft mapping below.'
   return {conversation_id:'local',message_id:id,role:'assistant',intent:'document_intake_preview',parts:[{type:'text',content},{type:'ocr_mapping_preview',...preview}],suggested_actions:[],suggestions:[],id,content,created_at:new Date().toISOString()}
+}
+
+function localAssistantWorkflowApplied(doctype:string,name:string,action:string,newState:string):AssistantChatResponse{
+  const id=`local_${Date.now()}`
+  const content=`ERPNext workflow action "${action}" was applied successfully. The new state is ${newState}.`
+  return {conversation_id:'local',message_id:id,role:'assistant',intent:'workflow_apply_action',parts:[{type:'text',content}],suggested_actions:[],suggestions:[],id,content,created_at:new Date().toISOString(),source:{source_type:'tool',source_name:'ERPNext Workflow',record_count:1,filters:{doctype,name,action,new_state:newState}}}
 }
 
 function EmptyCommandCenter({onPrompt}:{onPrompt:(prompt:string)=>void}){

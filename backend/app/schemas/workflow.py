@@ -10,6 +10,35 @@ class WorkflowAction(CamelModel):
     action: str
     next_state: str | None = None
     allowed: bool = True
+    label: str | None = None
+
+
+class WorkflowDocumentContext(CamelModel):
+    doctype: str
+    name: str
+    workflow_state: str | None = None
+    available_actions: list[WorkflowAction] = Field(default_factory=list)
+    source_message_id: str | None = None
+    source_result_id: str | None = None
+
+
+class WorkflowActionPreviewRequest(CamelModel):
+    doctype: str
+    name: str
+    action: str
+    comment: str | None = None
+
+
+class WorkflowActionPreviewResponse(CamelModel):
+    doctype: str
+    name: str
+    action: str
+    current_state: str | None = None
+    next_state: str | None = None
+    title: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    confirmation_required: bool = True
+    confirmation_id: str
 
 
 class PendingWorkflowDocument(CamelModel):
@@ -53,7 +82,7 @@ class ApplyWorkflowActionRequest(CamelModel):
     name: str
     action: str
     comment: str | None = None
-    confirmation_id: str | None = None
+    confirmation_id: str
 
 
 class ApplyWorkflowActionResponse(CamelModel):
@@ -63,5 +92,6 @@ class ApplyWorkflowActionResponse(CamelModel):
     previous_state: str | None = None
     new_state: str | None = None
     status: str | None = None
+    available_actions: list[WorkflowAction] = Field(default_factory=list)
     message: str
     result: dict[str, Any] = Field(default_factory=dict)

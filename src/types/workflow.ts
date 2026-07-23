@@ -3,6 +3,7 @@ export type WorkflowAction = {
   nextState?: string | null
   next_state?: string | null
   allowed?: boolean
+  label?: string | null
 }
 
 export type PendingWorkflowDocument = {
@@ -53,6 +54,8 @@ export type ApplyWorkflowActionRequest = {
   name: string
   action: string
   comment?: string
+  confirmationId?: string
+  confirmation_id?: string
 }
 
 export type ApplyWorkflowActionResponse = {
@@ -64,6 +67,31 @@ export type ApplyWorkflowActionResponse = {
   newState?: string | null
   new_state?: string | null
   status?: string | null
+  availableActions?: WorkflowAction[]
+  available_actions?: WorkflowAction[]
   message: string
   result?: Record<string, unknown>
+}
+
+export type WorkflowActionPreviewRequest = {
+  doctype: string
+  name: string
+  action: string
+  comment?: string
+}
+
+export type WorkflowActionPreviewResponse = {
+  doctype: string
+  name: string
+  action: string
+  currentState?: string | null
+  current_state?: string | null
+  nextState?: string | null
+  next_state?: string | null
+  title?: string | null
+  summary?: Record<string, unknown>
+  confirmationRequired?: boolean
+  confirmation_required?: boolean
+  confirmationId?: string
+  confirmation_id?: string
 }

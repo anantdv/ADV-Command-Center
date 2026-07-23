@@ -260,7 +260,7 @@ class ChatService:
             response, plan = await self.executor.run(plan, lambda: self._handle_report_followup(followup, conversation.id, cookies, user), user)
             self._attach_plan_part(response, plan)
         else:
-            intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range)
+            intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range, state_context)
             intent.conversation_id = conversation.id
             if intent.intent == "generate_file" and intent.source_type == "chat_result":
                 self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))

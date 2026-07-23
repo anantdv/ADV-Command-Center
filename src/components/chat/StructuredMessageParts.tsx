@@ -17,6 +17,7 @@ import { DocumentMappingPreview } from '../document-intake/DocumentMappingPrevie
 import { ChildRowsResolutionCard } from './ChildRowsResolutionCard'
 import { DraftFieldOptionsCard } from './DraftFieldOptionsCard'
 import { DraftInspectionCard } from './DraftInspectionCard'
+import { WorkflowActionConfirmDialog } from '../workflow/WorkflowActionConfirmDialog'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -48,12 +49,25 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
       if(part.type==='record_detail') return <RecordDetailCard key={`detail-${index}`} data={part}/>
       if(part.type==='draft_field_options') return <DraftFieldOptionsCard key={`draft-options-${index}`} part={part}/>
       if(part.type==='confirmation') return <ConfirmationCard key={`confirm-${index}`} part={part}/>
+      if(part.type==='workflow_confirmation') return <WorkflowConfirmationCard key={`workflow-confirm-${index}`} part={part}/>
       if(part.type==='ocr_mapping_preview') return <DocumentMappingPreview key={`ocr-${index}`} preview={part} onConfirm={()=>undefined} onCancel={()=>undefined}/>
       if(part.type==='child_rows_resolution_required') return <ChildRowsResolutionCard key={`resolve-${index}`} part={part}/>
       return null
     })}
     {permission&&!permission.allowed&&<div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><ShieldAlert size={15} className="shrink-0"/><span>{permission.reason||'ERPNext restricted this request.'}</span></div>}
     {(actions.length>0||actionSlot)&&<div className="flex flex-wrap items-center gap-2"><SuggestedActions actions={actions} onAction={action=>onAction?.(action,source)}/>{actionSlot}</div>} 
+  </div>
+}
+
+function WorkflowConfirmationCard({part}:{part:Extract<ChatMessagePart,{type:'workflow_confirmation'}>}){
+  const [open,setOpen]=useState(false)
+  const preview={doctype:part.doctype,name:part.name,action:part.action,current_state:part.current_state||part.currentState,next_state:part.next_state||part.nextState,title:part.title,summary:part.summary||{},confirmation_id:part.confirmation_id||part.confirmationId||''}
+  return <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+    <p className="text-xs font-bold text-amber-800">Workflow confirmation required</p>
+    <p className="mt-1 text-sm text-slate-700">Apply <span className="font-bold">{part.action}</span> to <span className="font-bold">{part.doctype} {part.name}</span>?</p>
+    <p className="mt-1 text-xs text-slate-500">{part.current_state||part.currentState||'Current'} → {part.next_state||part.nextState||'Next'}</p>
+    <button className="btn-primary mt-3 h-8 px-3 text-xs" onClick={()=>setOpen(true)}>Review and Confirm</button>
+    <WorkflowActionConfirmDialog preview={preview} onClose={()=>setOpen(false)}/>
   </div>
 }
 

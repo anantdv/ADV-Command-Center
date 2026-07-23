@@ -238,6 +238,18 @@ class ConfirmationPart(BaseModel):
     risk_level: Literal["medium", "high"] = "medium"
 
 
+class WorkflowConfirmationPart(BaseModel):
+    type: Literal["workflow_confirmation"] = "workflow_confirmation"
+    doctype: str
+    name: str
+    action: str
+    current_state: str | None = None
+    next_state: str | None = None
+    title: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    confirmation_id: str
+
+
 class OCRMappingPreviewPart(BaseModel):
     type: Literal["ocr_mapping_preview"] = "ocr_mapping_preview"
     intake_id: str
@@ -270,7 +282,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart | PlanPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | WorkflowConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart | PlanPart
 
 
 class AssistantChatResponse(BaseModel):

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from app.agents.router_agent import IntentResult
 from app.core.exceptions import AppError
-from app.schemas.chat import AssistantChatResponse, ConfirmationPart, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart
+from app.schemas.chat import AssistantChatResponse, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart, WorkflowConfirmationPart
+from app.schemas.workflow import ApplyWorkflowActionRequest, WorkflowActionPreviewRequest
 from app.services.workflow_service import WorkflowService
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
@@ -49,17 +50,35 @@ class WorkflowAgent:
 
         if intent.intent == "workflow_apply_action":
             if not intent.doctype or not intent.record_name or not (intent.data or {}).get("action"):
-                return self._needs_doc(conversation_id)
+                summary = "I need an open workflow document before I can apply that action."
+                return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary)], permission=PermissionMeta(allowed=False, risk_level="medium", reason=summary))
             action = str((intent.data or {}).get("action"))
-            detail = await self.service.get_document_detail(intent.doctype, intent.record_name, cookies, user)
-            if action not in {item.action for item in detail.available_actions}:
-                summary = "This workflow action is not available for your user on this document."
-                return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_safety_guard", status="error", input_summary=action, output_summary="Action not available")], permission=PermissionMeta(allowed=False, risk_level="medium", reason=summary))
-            confirmation_id = new_id("workflow_conf")
-            summary = f'Please confirm ERPNext workflow action "{action}" on {intent.doctype} {intent.record_name}. This will follow ERPNext workflow rules.'
-            return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ConfirmationPart(confirmation_id=confirmation_id, title=f"Confirm {action}", description=summary, confirm_label=action, risk_level="medium")], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=1, filters={"doctype": intent.doctype, "name": intent.record_name, "action": action}), PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True))
+            try:
+                preview = await self.preview_action(intent.doctype, intent.record_name, action, cookies, user)
+            except AppError as exc:
+                summary = exc.message or "This workflow action is no longer available for your user on this document."
+                return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_action_preview", status="error", input_summary=action, output_summary=summary)], permission=PermissionMeta(allowed=False, risk_level="medium", reason=summary))
+            summary = f'You are about to apply ERPNext workflow action "{preview.action}" to {preview.doctype} {preview.name}. Please confirm.'
+            return self._response(
+                conversation_id,
+                intent.intent,
+                summary,
+                [
+                    TextPart(content=summary),
+                    ToolCallPart(tool_name="workflow_action_preview", status="success", input_summary=f"{preview.action} {preview.doctype} {preview.name}", output_summary=f"{preview.current_state or 'Current'} → {preview.next_state or 'Next'}"),
+                    WorkflowConfirmationPart(doctype=preview.doctype, name=preview.name, action=preview.action, current_state=preview.current_state, next_state=preview.next_state, title=preview.title, summary=preview.summary, confirmation_id=preview.confirmation_id),
+                ],
+                SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=1, filters={"doctype": preview.doctype, "name": preview.name, "action": preview.action}),
+                PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True),
+            )
 
         return self._needs_doc(conversation_id)
+
+    async def preview_action(self, doctype: str, name: str, action: str, cookies: dict | None = None, user: str = "unknown"):
+        return await self.service.preview_action(WorkflowActionPreviewRequest(doctype=doctype, name=name, action=action), cookies, user)
+
+    async def apply_action(self, request: ApplyWorkflowActionRequest, cookies: dict | None = None, user: str = "unknown"):
+        return await self.service.apply_action(request, cookies, user)
 
     @staticmethod
     def _response(conversation_id: str, intent: str, summary: str, parts: list, source: SourceMeta | None = None, permission: PermissionMeta | None = None) -> AssistantChatResponse:

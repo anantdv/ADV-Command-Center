@@ -22,7 +22,7 @@ def get_suggestions_for_context(ctx: SuggestionContext) -> list[SuggestedPrompt]
         return suggestions
     if ctx.result_type == "workflow_detail":
         for action in ctx.workflow_actions:
-            suggestions.append(SuggestedPrompt(id=_id("wf", action), label=action, type="workflow_action", action_type="apply_workflow_action", payload={"doctype": ctx.doctype, "name": ctx.document_name, "action": action}, risk="medium", requires_confirmation=True, group="workflow"))
+            suggestions.append(SuggestedPrompt(id=_id("wf", action), label=action, type="workflow_action", action_type="preview_workflow_action", payload={"doctype": ctx.doctype, "name": ctx.document_name, "action": action}, risk="medium", requires_confirmation=True, group="workflow"))
         suggestions.append(_prompt("Refresh", ctx.previous_prompt or "Refresh this workflow document", "refresh", group="workflow"))
         return suggestions
     if ctx.result_type == "crud_preview":

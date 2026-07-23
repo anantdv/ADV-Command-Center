@@ -10,8 +10,10 @@ from app.schemas.chat import AssistantChatResponse, ChatMessageRequest
 from app.schemas.common import ApiResponse
 from app.schemas.crud import ConfirmCrudRequest
 from app.schemas.suggestions import SuggestionContext, SuggestionExecuteRequest, SuggestionResponse
+from app.schemas.workflow import WorkflowActionPreviewRequest
 from app.services.chat_service import chat_service
 from app.services.suggestion_service import suggestion_service
+from app.services.workflow_service import WorkflowService
 
 router = APIRouter(prefix="/suggestions", tags=["Suggestions"])
 
@@ -44,8 +46,10 @@ async def execute(payload: SuggestionExecuteRequest, request: Request, user: Cur
         doctype = suggestion.payload.get("doctype")
         name = suggestion.payload.get("name")
         action = suggestion.payload.get("action")
-        response = await chat_service.send_chat_message(ChatMessageRequest(conversation_id=payload.conversation_id, message=f"{action} {doctype} {name}"), get_frappe_cookies(request), user.user, user.roles)
-        return ApiResponse(data=response)
+        if not doctype or not name or not action:
+            raise AppError("This workflow action is missing document context.", 422)
+        response = await WorkflowService().preview_action(WorkflowActionPreviewRequest(doctype=str(doctype), name=str(name), action=str(action)), get_frappe_cookies(request), user.user)
+        return ApiResponse(data=response.model_dump(mode="json"))
     if suggestion.type == "crud_confirmation":
         confirmation_id = str(suggestion.payload.get("confirmation_id") or "")
         if not confirmation_id:

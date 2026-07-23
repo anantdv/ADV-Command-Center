@@ -43,3 +43,17 @@ def test_workflow_action_parser_handles_send_back():
     assert intent
     assert intent["intent"] == "workflow_apply_action"
     assert intent["action"] == "Send Back"
+
+
+def test_contextual_approve_maps_to_custom_available_action():
+    context = {
+        "active_doctype": "Sales Order",
+        "active_document": "SAL-ORD-2026-00001",
+        "active_workflow_actions": [{"action": "Approved By Sales Person"}, {"action": "Rejected By Sales Person"}],
+    }
+    intent = parse_workflow_intent("approve it", context)
+
+    assert intent
+    assert intent["doctype"] == "Sales Order"
+    assert intent["record_name"] == "SAL-ORD-2026-00001"
+    assert intent["action"] == "Approved By Sales Person"

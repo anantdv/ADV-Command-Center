@@ -70,12 +70,16 @@ class ConversationStateEngine:
     ) -> ConversationContext:
         started = perf_counter()
         new_state = state_from_response(response)
+        workflow_context = _response_workflow_context(response)
         updated = context.model_copy(update={
             "active_state": new_state,
             "active_plan_id": _response_plan_id(response) or context.active_plan_id,
             "draft_session_id": response.conversation_id if new_state.name.startswith("DRAFT") or new_state in {ConversationState.ENTITY_SELECTION, ConversationState.WAITING_USER_SELECTION, ConversationState.WAITING_USER_CONFIRMATION} else context.draft_session_id,
             "report_session_id": _response_report_id(response) or context.report_session_id,
             "active_doctype": _response_doctype(response) or context.active_doctype,
+            "active_document": (workflow_context or {}).get("name") or _response_document_name(response) or context.active_document,
+            "active_workflow_state": (workflow_context or {}).get("workflow_state") or context.active_workflow_state,
+            "active_workflow_actions": (workflow_context or {}).get("available_actions") or context.active_workflow_actions,
             "expected_field": _response_expected_field(response),
             "expected_entity_type": _response_expected_entity_type(response),
             "pending_entities": _response_pending_entities(response),
@@ -90,6 +94,8 @@ class ConversationStateEngine:
             updated.expected_field = None
             updated.expected_entity_type = None
             updated.pending_entities = []
+        if workflow_context and not workflow_context.get("available_actions"):
+            updated.active_workflow_actions = []
         await repository.save_conversation_context(response.conversation_id, updated)
         response.current_state = updated.active_state.value
         response.response_type = response_type_from_state(response, updated.active_state)
@@ -242,6 +248,41 @@ def _response_doctype(response: AssistantChatResponse) -> str | None:
     for part in response.parts:
         if getattr(part, "doctype", None):
             return getattr(part, "doctype")
+    return None
+
+
+def _response_document_name(response: AssistantChatResponse) -> str | None:
+    if response.source and response.source.filters:
+        value = response.source.filters.get("name") or response.source.filters.get("record_name")
+        if value:
+            return str(value)
+    for part in response.parts:
+        if getattr(part, "name", None):
+            return getattr(part, "name")
+    return None
+
+
+def _response_workflow_context(response: AssistantChatResponse) -> dict[str, Any] | None:
+    for part in response.parts:
+        if getattr(part, "type", "") != "record_detail":
+            continue
+        actions = list(getattr(part, "available_workflow_actions", []) or [])
+        if not actions:
+            return None
+        return {
+            "doctype": getattr(part, "doctype", None),
+            "name": getattr(part, "name", None),
+            "workflow_state": getattr(part, "workflow_state", None),
+            "available_actions": actions,
+        }
+    if response.intent == "workflow_apply_action" and response.source and response.source.filters:
+        filters = response.source.filters
+        return {
+            "doctype": filters.get("doctype"),
+            "name": filters.get("name"),
+            "workflow_state": filters.get("new_state") or filters.get("workflow_state"),
+            "available_actions": filters.get("available_actions") or [],
+        }
     return None
 
 

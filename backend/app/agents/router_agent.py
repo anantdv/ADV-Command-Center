@@ -153,7 +153,7 @@ class RouterAgent:
         self.extraction = extraction or LLMExtractionService()
         self.query_planner = query_planner or QueryPlannerService(self.extraction)
 
-    async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None, date_range_context: dict[str, str] | None = None) -> IntentResult:
+    async def classify(self, message: str, module_context: str | None = None, user: str = "unknown", conversation_id: str | None = None, date_range_context: dict[str, str] | None = None, conversation_context: Any | None = None) -> IntentResult:
         text = " ".join(message.lower().split())
         if self._report_ui_action_without_context(text):
             return IntentResult(
@@ -163,7 +163,7 @@ class RouterAgent:
                 missing_info_hint="Please select a chart or report result first, then choose that action from the result buttons.",
                 date_range=date_range_context,
             )
-        workflow_intent = parse_workflow_intent(message)
+        workflow_intent = parse_workflow_intent(message, conversation_context)
         if workflow_intent:
             return IntentResult(
                 intent=workflow_intent["intent"],
