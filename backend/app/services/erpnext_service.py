@@ -368,6 +368,7 @@ class ERPNextService:
             "Item": [
                 {"name": "ITEM-001", "item_name": "Industrial Sensor", "item_group": "Products", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "KA-HBEO4-00087", "item_name": "Home Basics Electric Oven 45L", "description": "Electric oven 45L", "item_group": "Appliances", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
+                {"name": "HA-MSA1-00045", "item_name": "Midea Split AC 18000BTU", "description": "Midea split air conditioner", "brand": "Midea", "item_group": "Air Conditioners", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "MD-SPLIT-AC-001", "item_name": "Midea Split AC", "description": "Midea split air conditioner", "brand": "Midea", "item_group": "Air Conditioners", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "MD-SPLIT-AC-002", "item_name": "Midea Split AC 2 Ton", "description": "Midea split air conditioner 2 ton", "brand": "Midea", "item_group": "Air Conditioners", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},
                 {"name": "ITEM-002", "item_name": "Control Panel", "item_group": "Products", "stock_uom": "Nos", "disabled": 0, "is_stock_item": 1},

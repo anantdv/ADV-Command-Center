@@ -35,6 +35,7 @@ from app.schemas.chat import (
     ToolCallPart,
     ChartPart,
     ChildRowsResolutionPart,
+    ConfirmationPart,
 )
 from app.schemas.aggregation import AggregationMetric, AggregationPlan
 from app.schemas.crud import CancelCrudResponse, ConfirmCrudRequest, ConfirmCrudResponse, ContinueCrudRequest
@@ -48,6 +49,7 @@ from app.utils.suggestion_context_builder import SuggestionContextBuilder
 from app.utils.table_formatter import build_table_part
 from app.utils.chart_data_normalizer import normalize_chart_data
 from app.utils.payload_builder import PayloadBuilder
+from app.utils.confirmation_store import confirmation_store
 from app.schemas.entity_resolution import ChildRowResolution, EntitySearchContext, EntitySearchRequest
 from app.services.entity_resolution_service import entity_resolution_service
 
@@ -164,7 +166,7 @@ class ChatService:
 
         pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
         if pending_response:
-            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options"} else pending_response.intent
+            audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options", "draft_preview_updated", "draft_edit_failed"} else pending_response.intent
             intent = IntentResult(
                 intent=audit_intent,
                 conversation_id=conversation.id,
@@ -289,7 +291,10 @@ class ChatService:
         return response
 
     async def _prepare_crud_or_resolve_entities(self, intent: IntentResult, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse:
+        draft_changes: list[dict[str, Any]] = []
         if intent.intent == "crud_create" and intent.doctype:
+            intent.data = await self._hydrate_draft_data(intent.doctype, intent.data or {}, cookies)
+            draft_changes = list((intent.data or {}).pop("_last_changes", []) or [])
             resolution = await self._build_child_row_resolution(intent.doctype, intent.data or {}, conversation_id, cookies)
             if resolution:
                 message_id = new_id("msg")
@@ -303,7 +308,17 @@ class ChatService:
                     response = await self._draft_warehouse_options_response(conversation_id, intent.doctype, intent.data or {}, cookies, intent.raw_prompt)
                     await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": response.message_id, "status": "awaiting_warehouse", "blocking_requirements": readiness["blocking_requirements"]})
                     return response
-        return await self.crud_agent.handle(intent, cookies, user)
+        response = await self.crud_agent.handle(intent, cookies, user)
+        if draft_changes:
+            preview = next((part for part in response.parts if isinstance(part, RecordPreviewPart)), None)
+            if preview:
+                preview.changes = draft_changes
+                response.intent = "draft_preview_updated"
+                response.content = "I updated the draft preview. Please review the refreshed values before confirming."
+                first_text = next((part for part in response.parts if isinstance(part, TextPart)), None)
+                if first_text:
+                    first_text.content = response.content
+        return response
 
     async def confirm_crud(self, request: ConfirmCrudRequest, cookies: dict | None = None, user: str = "unknown") -> ConfirmCrudResponse:
         return await self.crud_agent.tools.confirm_crud_action(request.confirmation_id, cookies, user)
@@ -364,6 +379,14 @@ class ChatService:
             if applied:
                 intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.98)
                 return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        draft_updates = self._apply_natural_draft_updates(collected, request.message)
+        if draft_updates["applied"]:
+            self._invalidate_pending_confirmation(pending)
+            collected.setdefault("_last_changes", draft_updates["changes"])
+            intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=collected, conversation_id=conversation_id, raw_prompt=request.message, confidence=.99)
+            return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        if draft_updates["matched"] and draft_updates["errors"]:
+            return self._draft_edit_error_response(conversation_id, doctype, draft_updates["errors"])
         if any(word in text for word in ("show ", "list ", "open ")):
             return None
         if self._is_proceed_command(text):
@@ -529,6 +552,183 @@ class ChatService:
                 merged[key] = value
         return merged
 
+    async def _hydrate_draft_data(self, doctype: str, data: dict[str, Any], cookies: dict | None) -> dict[str, Any]:
+        hydrated = dict(data or {})
+        rows = hydrated.get("items")
+        if not isinstance(rows, list):
+            hydrated.pop("_last_changes", None)
+            return hydrated
+        default_warehouse = hydrated.get("set_warehouse") or hydrated.get("warehouse")
+        new_rows: list[dict[str, Any]] = []
+        for index, item in enumerate(rows):
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            row.setdefault("row_id", f"row-{index+1}")
+            if row.get("item_code") and (not row.get("uom") or not row.get("description") or not row.get("item_name")):
+                details = await self._selected_item_defaults(str(row["item_code"]), cookies)
+                for key, value in details.items():
+                    row.setdefault(key, value)
+            if default_warehouse and doctype in {"Purchase Order", "Purchase Invoice", "Purchase Receipt", "Sales Order", "Sales Invoice", "Delivery Note", "Material Request"}:
+                row.setdefault("warehouse", default_warehouse)
+            qty = self._to_float(row.get("qty"), 1)
+            rate = self._to_float(row.get("rate"), 0)
+            row["qty"] = qty
+            if "rate" in row or doctype in {"Purchase Order", "Purchase Invoice", "Sales Order", "Sales Invoice", "Quotation"}:
+                row["rate"] = rate
+                row["amount"] = round(qty * rate, 2)
+            new_rows.append(row)
+        hydrated["items"] = new_rows
+        return hydrated
+
+    def _apply_natural_draft_updates(self, data: dict[str, Any], message: str) -> dict[str, Any]:
+        rows = data.get("items")
+        if not isinstance(rows, list) or not rows:
+            return {"matched": False, "applied": False, "changes": [], "errors": []}
+        updates = self._parse_row_updates(message)
+        if not updates:
+            return {"matched": False, "applied": False, "changes": [], "errors": []}
+        changes: list[dict[str, Any]] = []
+        errors: list[str] = []
+        planned: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+        used_indexes: set[int] = set()
+        for update in updates:
+            candidates = self._rank_rows_for_query(rows, str(update["query"]))
+            candidates = [item for item in candidates if item[0] not in used_indexes]
+            if not candidates or candidates[0][1] <= 0:
+                errors.append(f"I could not match “{update['query']}” to an item row in the active draft.")
+                continue
+            if len(candidates) > 1 and candidates[0][1] == candidates[1][1]:
+                errors.append(f"“{update['query']}” matches more than one row. Please be more specific.")
+                continue
+            index = candidates[0][0]
+            used_indexes.add(index)
+            planned.append((index, update, dict(rows[index])))
+        if errors:
+            return {"matched": True, "applied": False, "changes": [], "errors": errors}
+        for index, update, before in planned:
+            row = rows[index]
+            field = str(update["field"])
+            value = update["value"]
+            row[field] = value
+            if field == "rate":
+                row["rate_source"] = "user"
+            qty = self._to_float(row.get("qty"), 1)
+            rate = self._to_float(row.get("rate"), 0)
+            if field in {"qty", "rate"}:
+                row["qty"] = qty
+                row["rate"] = rate
+                row["amount"] = round(qty * rate, 2)
+            changes.append({
+                "table_field": "items",
+                "row_id": row.get("row_id") or f"row-{index+1}",
+                "fieldname": field,
+                "old_value": before.get(field),
+                "new_value": value,
+                "label": self._row_label(row),
+            })
+        return {"matched": True, "applied": True, "changes": changes, "errors": []}
+
+    @staticmethod
+    def _parse_row_updates(message: str) -> list[dict[str, Any]]:
+        text = " ".join(message.strip().split())
+        lowered = text.lower()
+        if not re.search(r"\b(update|set|change|correct|edit)\b", lowered):
+            return []
+        field = None
+        if re.search(r"\b(rate|price|cost)\b", lowered):
+            field = "rate"
+        elif re.search(r"\b(qty|quantity|units?|pcs|pieces)\b", lowered):
+            field = "qty"
+        elif re.search(r"\buom\b", lowered):
+            field = "uom"
+        if not field:
+            return []
+        body = re.sub(r"^(?:please\s+)?(?:update|set|change|correct|edit)\s+", "", text, flags=re.I).strip()
+        body = re.sub(rf"^(?:the\s+)?{field}\s+(?:for\s+)?", "", body, flags=re.I).strip()
+        segments = [segment.strip(" ,.;") for segment in re.split(r"\s+(?:and|&)\s+|[,;]+", body) if segment.strip(" ,.;")]
+        updates: list[dict[str, Any]] = []
+        for segment in segments:
+            match = re.search(r"(.+?)\s+(?:rate|price|cost|qty|quantity|uom)?\s*(?:to|as|=|at)?\s*([A-Za-z]*\s*[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[A-Za-z][A-Za-z0-9 -]{0,20})$", segment, re.I)
+            if not match:
+                continue
+            query = re.sub(r"\b(rate|price|cost|qty|quantity|uom|for|item|row)\b", " ", match.group(1), flags=re.I)
+            query = " ".join(query.strip().split())
+            raw_value = match.group(2).strip()
+            if field in {"rate", "qty"}:
+                number_match = re.search(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?", raw_value)
+                if not number_match or not query:
+                    continue
+                value: Any = float(number_match.group(0).replace(",", ""))
+            else:
+                value = raw_value
+            updates.append({"field": field, "query": query, "value": value, "source_text": segment})
+        return updates
+
+    @staticmethod
+    def _rank_rows_for_query(rows: list[dict[str, Any]], query: str) -> list[tuple[int, int]]:
+        query_norm = ChatService._normalize_match_text(query)
+        query_tokens = {token for token in query_norm.split() if token}
+        ranked: list[tuple[int, int]] = []
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            haystack = ChatService._normalize_match_text(" ".join(str(row.get(field) or "") for field in ("item_code", "item_name", "description", "source_text", "item_query")))
+            tokens = set(haystack.split())
+            score = 0
+            if query_norm and query_norm in haystack:
+                score += 10
+            score += sum(3 for token in query_tokens if token in tokens)
+            if "ac" in query_tokens and any(token in tokens for token in {"ac", "air", "conditioner", "split", "midea"}):
+                score += 8
+            if "oven" in query_tokens and "oven" in tokens:
+                score += 8
+            ranked.append((index, score))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+        return ranked
+
+    @staticmethod
+    def _normalize_match_text(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+    @staticmethod
+    def _row_label(row: dict[str, Any]) -> str:
+        return str(row.get("item_name") or row.get("item_code") or row.get("description") or row.get("source_text") or "row")
+
+    @staticmethod
+    def _draft_totals(data: dict[str, Any]) -> dict[str, Any]:
+        rows = data.get("items") if isinstance(data, dict) else []
+        if not isinstance(rows, list):
+            return {}
+        total = 0.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            qty = ChatService._to_float(row.get("qty"), 0)
+            rate = ChatService._to_float(row.get("rate"), 0)
+            amount = ChatService._to_float(row.get("amount"), qty * rate)
+            total += amount
+        return {"net_total": round(total, 2), "grand_total": round(total, 2)}
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 0) -> float:
+        try:
+            return float(str(value).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _invalidate_pending_confirmation(pending: dict[str, Any]) -> None:
+        confirmation_id = str(pending.get("confirmation_id") or "")
+        if confirmation_id:
+            confirmation_store.cancel(confirmation_id)
+
+    @staticmethod
+    def _draft_edit_error_response(conversation_id: str, doctype: str, errors: list[str]) -> AssistantChatResponse:
+        message_id = new_id("msg")
+        summary = "I understood that you want to edit the active draft, but I could not safely apply the change. " + " ".join(errors)
+        return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="draft_edit_failed", parts=[TextPart(content=summary)], permission=PermissionMeta(allowed=True, risk_level="low", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
+
     @staticmethod
     def _is_proceed_command(text: str) -> bool:
         return bool(re.search(r"\b(proceed|continue|use selected|prepare preview|review draft)\b", text))
@@ -674,6 +874,7 @@ class ChatService:
     async def _remember_pending_draft(self, response: AssistantChatResponse) -> None:
         missing = next((part for part in response.parts if isinstance(part, MissingFieldsPart)), None)
         preview = next((part for part in response.parts if isinstance(part, RecordPreviewPart)), None)
+        confirmation = next((part for part in response.parts if isinstance(part, ConfirmationPart)), None)
         field_options = next((part for part in response.parts if isinstance(part, DraftFieldOptionsPart)), None)
         if missing:
             await self.repository.save_pending_draft(response.conversation_id, {"doctype": missing.doctype, "operation": missing.operation, "record_name": missing.record_name, "data": missing.collected_data, "message_id": response.message_id})
@@ -684,7 +885,22 @@ class ChatService:
                 current["status"] = f"awaiting_{field_options.fieldname}"
                 await self.repository.save_pending_draft(response.conversation_id, current)
         elif preview:
-            await self.repository.clear_pending_draft(response.conversation_id)
+            current = await self.repository.get_pending_draft(response.conversation_id) or {}
+            version = int(current.get("version") or 0) + 1
+            preview.draft_session_id = response.conversation_id
+            preview.draft_version = version
+            if preview.after_data.get("items"):
+                preview.totals = self._draft_totals(preview.after_data)
+            await self.repository.save_pending_draft(response.conversation_id, {
+                "doctype": preview.doctype,
+                "operation": preview.operation,
+                "record_name": preview.record_name,
+                "data": preview.after_data,
+                "message_id": response.message_id,
+                "status": "awaiting_confirmation",
+                "confirmation_id": confirmation.confirmation_id if confirmation else None,
+                "version": version,
+            })
 
     async def _resolve_report_followup(self, request: ChatMessageRequest, conversation_id: str) -> dict[str, Any] | None:
         action = request.structured_action or {}

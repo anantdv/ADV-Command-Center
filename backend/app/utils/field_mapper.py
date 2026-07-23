@@ -8,7 +8,7 @@ ALLOWED_CREATE_FIELDS = {
     "Opportunity": ["opportunity_from", "party_name", "opportunity_type", "opportunity_amount", "status", "transaction_date"],
     "Quotation": ["quotation_to", "party_name", "company", "transaction_date", "valid_till", "currency", "items"],
     "Sales Order": ["customer", "company", "transaction_date", "delivery_date", "currency", "po_no", "po_date", "items"],
-    "Purchase Order": ["supplier", "company", "transaction_date", "schedule_date", "currency", "items"],
+    "Purchase Order": ["supplier", "company", "transaction_date", "schedule_date", "currency", "set_warehouse", "items"],
     "Sales Invoice": ["customer", "company", "posting_date", "due_date", "currency", "items"],
     "Purchase Invoice": ["supplier", "company", "bill_no", "bill_date", "posting_date", "due_date", "currency", "items"],
     "Delivery Note": ["customer", "company", "posting_date", "posting_time", "items"],

@@ -133,3 +133,64 @@ def test_warehouse_detail_prompt_routes_to_exact_document(client):
     assert detail["doctype"] == "Warehouse"
     assert detail["name"] == "Goods In Transit - CTS"
     assert not any(part["type"] == "table" and part.get("total_rows", 0) == 9 for part in data["parts"])
+
+
+def _purchase_order_preview_with_two_items(client):
+    first = _send(client, "create a draft purchase order for supplier Zucci for items home basic oven 45l qty 2, midea split ac qty1")
+    conversation_id = first["conversation_id"]
+    resolution = _part(first, "child_rows_resolution_required")
+    supplier_row = next(row for row in resolution["rows"] if row["link_field"] == "supplier")
+    after_supplier = _send(client, "Selected 001463", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"__parent__","row_id":supplier_row["row_id"],"fieldname":"supplier","selected_value":"001463"})
+    resolution = _part(after_supplier, "child_rows_resolution_required")
+    oven_row = next(row for row in resolution["rows"] if "oven" in row["query"].lower())
+    after_oven = _send(client, "Selected KA-HBEO4-00087", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"items","row_id":oven_row["row_id"],"fieldname":"item_code","selected_value":"KA-HBEO4-00087"})
+    resolution = _part(after_oven, "child_rows_resolution_required")
+    ac_row = next(row for row in resolution["rows"] if "ac" in row["query"].lower() or "midea" in row["query"].lower())
+    after_ac = _send(client, "Selected HA-MSA1-00045", conversation_id, {"action":"select_entity_match","draft_session_id":conversation_id,"table_field":"items","row_id":ac_row["row_id"],"fieldname":"item_code","selected_value":"HA-MSA1-00045"})
+    options = _part(after_ac, "draft_field_options")
+    preview = _send(client, "Selected POM Warehouse - CTS", conversation_id, {"action":"select_draft_field_value","draft_session_id":conversation_id,"table_field":"items","row_ids":options["row_ids"],"fieldname":"warehouse","selected_value":"POM Warehouse - CTS"})
+    return preview
+
+
+def test_purchase_order_preview_persists_warehouse_and_uom(client):
+    preview_response = _purchase_order_preview_with_two_items(client)
+    preview = _part(preview_response, "record_preview")
+    rows = preview["after_data"]["items"]
+
+    assert preview_response["intent"] == "crud_create"
+    assert {row["item_code"] for row in rows} == {"KA-HBEO4-00087", "HA-MSA1-00045"}
+    assert all(row.get("warehouse") == "POM Warehouse - CTS" for row in rows)
+    assert all(row.get("uom") == "Nos" for row in rows)
+    assert preview.get("draft_session_id") == preview_response["conversation_id"]
+    assert preview.get("draft_version") == 1
+
+
+def test_draft_rate_update_after_preview_regenerates_preview_and_totals(client):
+    preview_response = _purchase_order_preview_with_two_items(client)
+    conversation_id = preview_response["conversation_id"]
+    old_confirmation = _part(preview_response, "confirmation")["confirmation_id"]
+
+    updated = _send(client, "update rate oven 250 and ac 500", conversation_id)
+    preview = _part(updated, "record_preview")
+    rows = {row["item_code"]: row for row in preview["after_data"]["items"]}
+    new_confirmation = _part(updated, "confirmation")["confirmation_id"]
+
+    assert updated["intent"] == "draft_preview_updated"
+    assert rows["KA-HBEO4-00087"]["rate"] == 250
+    assert rows["KA-HBEO4-00087"]["amount"] == 500
+    assert rows["HA-MSA1-00045"]["rate"] == 500
+    assert rows["HA-MSA1-00045"]["amount"] == 500
+    assert preview["totals"]["grand_total"] == 1000
+    assert len(preview["changes"]) == 2
+    assert new_confirmation != old_confirmation
+
+    stale = client.post("/api/chat/actions/confirm", json={"confirmation_id": old_confirmation})
+    assert stale.status_code == 410
+
+
+def test_draft_rate_update_does_not_fall_to_blocked_write(client):
+    preview_response = _purchase_order_preview_with_two_items(client)
+    updated = _send(client, "change oven rate to 250", preview_response["conversation_id"])
+
+    assert updated["intent"] == "draft_preview_updated"
+    assert not any("disabled" in part.get("content", "").lower() for part in updated["parts"] if part["type"] == "text")

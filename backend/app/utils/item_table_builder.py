@@ -22,6 +22,7 @@ def normalize_items_for_doctype(doctype: str, items: list[dict[str, Any]]) -> li
             "item_name": item.get("item_name"),
             "item_query": item.get("item_query"),
             "source_text": item.get("source_text"),
+            "row_id": item.get("row_id"),
             "description": item.get("description") or item.get("item_name") or item.get("item_code") or item.get("item_query"),
             "qty": _number(item.get("qty")) or 1,
             "uom": item.get("uom") or item.get("stock_uom"),
@@ -41,6 +42,12 @@ def normalize_items_for_doctype(doctype: str, items: list[dict[str, Any]]) -> li
             row.pop("amount", None)
             if item.get("warehouse"):
                 row["warehouse"] = item["warehouse"]
+        elif item.get("warehouse"):
+            row["warehouse"] = item["warehouse"]
+        if item.get("schedule_date") and "schedule_date" not in row:
+            row["schedule_date"] = item["schedule_date"]
+        if item.get("rate_source"):
+            row["rate_source"] = item["rate_source"]
         if not row.get("item_code") and (row.get("item_query") or row.get("item_name")):
             row["_warning"] = "Item is unresolved. Please select an existing ERPNext Item before creating the draft."
         normalized.append({key: value for key, value in row.items() if value not in (None, "")})
@@ -52,7 +59,8 @@ def item_warnings(items: list[dict[str, Any]]) -> list[str]:
 
 
 def strip_internal_item_markers(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [{key: value for key, value in item.items() if not key.startswith("_") and not key.endswith("_query") and key != "source_text"} for item in items]
+    internal = {"source_text", "row_id", "rate_source", "is_stock_item"}
+    return [{key: value for key, value in item.items() if not key.startswith("_") and not key.endswith("_query") and key not in internal} for item in items]
 
 
 def _number(value: Any) -> float | None:

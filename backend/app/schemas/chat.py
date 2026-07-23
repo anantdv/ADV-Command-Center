@@ -167,9 +167,13 @@ class RecordPreviewPart(BaseModel):
     type: Literal["record_preview"] = "record_preview"
     operation: Literal["create", "update"]
     doctype: str
+    draft_session_id: str | None = None
+    draft_version: int | None = None
     record_name: str | None = None
     before_data: dict[str, Any] | None = None
     after_data: dict[str, Any]
+    totals: dict[str, Any] = Field(default_factory=dict)
+    changes: list[dict[str, Any]] = Field(default_factory=list)
     risk_level: Literal["medium", "high"] = "medium"
 
 
