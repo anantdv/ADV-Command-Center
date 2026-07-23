@@ -7,6 +7,7 @@ from app.schemas.common import CamelModel
 from app.schemas.crud import MissingField
 from app.schemas.entity_resolution import ChildRowsResolutionPart
 from app.schemas.suggestions import SuggestedPrompt
+from app.schemas.task_plan import PlanPart
 
 
 class ConversationCreate(CamelModel):
@@ -269,7 +270,7 @@ class ExtractionMeta(BaseModel):
     fallback_used: bool = False
 
 
-MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart
+MessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OCRMappingPreviewPart | ChildRowsResolutionPart | PlanPart
 
 
 class AssistantChatResponse(BaseModel):

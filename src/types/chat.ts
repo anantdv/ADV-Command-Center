@@ -24,6 +24,20 @@ export type ChatPermissionMeta = {
 
 export type TableColumn = { key: string; label: string; type: string }
 export type TextPart = { type: 'text'; content: string }
+export type ExecutionPlanPart = {
+  type: 'execution_plan'
+  plan_id: string
+  title: string
+  status: 'pending' | 'running' | 'waiting_user' | 'completed' | 'failed' | 'cancelled' | 'skipped'
+  current_step_id?: string | null
+  resume_point?: string | null
+  steps: Array<{
+    id: string
+    label: string
+    action: string
+    status: 'pending' | 'running' | 'waiting_user' | 'completed' | 'failed' | 'cancelled' | 'skipped'
+  }>
+}
 export type ToolCallPart = {
   type: 'tool_call'
   tool_name?: string
@@ -164,7 +178,7 @@ export type ChildRowsResolutionPart = {
     message?: string | null
   }>
 }
-export type ChatMessagePart = TextPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
+export type ChatMessagePart = TextPart | ExecutionPlanPart | ToolCallPart | TablePart | ChartPart | FilePart | MissingFieldsPart | RecordPreviewPart | DraftInspectionPart | RecordDetailPart | DraftFieldOptionsPart | ConfirmationPart | OcrMappingPreviewPart | ChildRowsResolutionPart
 
 export type SuggestedAction = {
   label: string

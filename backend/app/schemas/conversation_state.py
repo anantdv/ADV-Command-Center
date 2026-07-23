@@ -33,6 +33,7 @@ class ConversationContext(BaseModel):
     conversation_id: str
     active_state: ConversationState = ConversationState.IDLE
     draft_session_id: str | None = None
+    active_plan_id: str | None = None
     report_session_id: str | None = None
     active_doctype: str | None = None
     active_document: str | None = None
@@ -61,4 +62,3 @@ class StateDecision(BaseModel):
     active_state: ConversationState
     reason: str
     composite: bool = False
-

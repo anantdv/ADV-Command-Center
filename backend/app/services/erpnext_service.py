@@ -83,14 +83,39 @@ class ERPNextService:
                 "Customer": ["name", "customer_name", "customer_group", "territory", "disabled"],
                 "Supplier": ["name", "supplier_name", "supplier_group", "disabled"],
                 "Item": ["name", "item_name", "item_group", "stock_uom", "disabled"],
-                "Sales Invoice": ["name", "customer", "posting_date", "grand_total", "outstanding_amount", "status"],
-                "Purchase Invoice": ["name", "supplier", "posting_date", "grand_total", "outstanding_amount", "status"],
-                "Sales Order": ["name", "customer", "transaction_date", "grand_total", "status"],
-                "Purchase Order": ["name", "supplier", "transaction_date", "grand_total", "status"],
+                "Sales Invoice": ["name", "customer", "posting_date", "grand_total", "outstanding_amount", "status", "items"],
+                "Purchase Invoice": ["name", "supplier", "posting_date", "grand_total", "outstanding_amount", "status", "items"],
+                "Sales Order": ["name", "customer", "transaction_date", "grand_total", "status", "items"],
+                "Purchase Order": ["name", "supplier", "transaction_date", "grand_total", "status", "items"],
+                "Sales Invoice Item": ["name", "item_code", "item_name", "qty", "rate", "amount"],
+                "Purchase Invoice Item": ["name", "item_code", "item_name", "qty", "rate", "amount"],
+                "Sales Order Item": ["name", "item_code", "item_name", "qty", "rate", "amount", "warehouse"],
+                "Purchase Order Item": ["name", "item_code", "item_name", "qty", "rate", "amount", "warehouse"],
             }.get(doctype, ["name", "status"])
+            link_options = {
+                "customer": "Customer",
+                "supplier": "Supplier",
+                "item_code": "Item",
+                "warehouse": "Warehouse",
+            }
+            table_options = {
+                "Sales Invoice": "Sales Invoice Item",
+                "Purchase Invoice": "Purchase Invoice Item",
+                "Sales Order": "Sales Order Item",
+                "Purchase Order": "Purchase Order Item",
+            }
             return DoctypeSchema(
                 doctype=doctype,
-                fields=[FieldSchema(fieldname=field, label=field.replace("_", " ").title(), fieldtype="Currency" if any(part in field for part in ("amount", "total")) else "Data", required=field == "name") for field in mock_fields],
+                fields=[
+                    FieldSchema(
+                        fieldname=field,
+                        label=field.replace("_", " ").title(),
+                        fieldtype="Table" if field == "items" else "Link" if field in link_options else "Currency" if any(part in field for part in ("amount", "total", "rate")) else "Float" if field == "qty" else "Data",
+                        options=table_options.get(doctype) if field == "items" else link_options.get(field),
+                        required=field == "name",
+                    )
+                    for field in mock_fields
+                ],
                 permissions=PermissionMeta(**FULL_PERMISSION),
             )
         data = self._unwrap(await frappe_schema.get_doctype_schema(self.client, doctype, cookies))
@@ -104,6 +129,10 @@ class ERPNextService:
                 read_only=bool(field.get("read_only", False)),
                 hidden=bool(field.get("hidden", False)),
                 permlevel=int(field.get("permlevel") or 0),
+                depends_on=field.get("depends_on"),
+                fetch_from=field.get("fetch_from"),
+                default=field.get("default"),
+                description=field.get("description") or field.get("help"),
             )
             for field in data.get("fields", [])
         ]
@@ -188,10 +217,18 @@ class ERPNextService:
                 record = {"name": name, "status": "Draft", "docstatus": 0}
                 if doctype == "Sales Invoice":
                     record |= {"customer": "Aster Retail Pvt Ltd", "posting_date": "2026-07-01", "grand_total": 184500, "outstanding_amount": 184500, "currency": "INR"}
+                    record["items"] = [{"name": f"{name}-1", "item_code": "ITEM-001", "item_name": "Industrial Sensor", "qty": 2, "rate": 5000, "amount": 10000}]
+                elif doctype == "Purchase Order":
+                    record |= {"supplier": "Acme Supplies", "transaction_date": "2026-07-01", "grand_total": 125000, "currency": "INR"}
+                    record["items"] = [{"name": f"{name}-1", "item_code": "ITEM-001", "item_name": "Industrial Sensor", "qty": 1, "rate": 125000, "amount": 125000}]
                 elif doctype == "Customer":
                     record |= {"customer_name": name, "customer_group": "Commercial", "territory": "India"}
                 elif doctype == "Item":
                     record |= {"item_name": name, "item_group": "Products", "stock_uom": "Nos"}
+            if doctype == "Sales Invoice" and not record.get("items"):
+                record["items"] = [{"name": f"{name}-1", "item_code": "ITEM-001", "item_name": "Industrial Sensor", "qty": 2, "rate": 5000, "amount": 10000}]
+            if doctype == "Purchase Order" and not record.get("items"):
+                record["items"] = [{"name": f"{name}-1", "item_code": "ITEM-001", "item_name": "Industrial Sensor", "qty": 1, "rate": record.get("grand_total") or 125000, "amount": record.get("grand_total") or 125000}]
             summary_keys = [
                 "customer", "supplier", "party_name", "customer_name", "supplier_name", "item_name",
                 "posting_date", "transaction_date", "grand_total", "outstanding_amount", "currency",
@@ -205,7 +242,7 @@ class ERPNextService:
                 workflow_state=record.get("workflow_state"),
                 summary={key: record[key] for key in summary_keys if key in record},
                 fields=record,
-                items=[],
+                items=record.get("items") or [],
                 available_workflow_actions=[],
                 permission=FULL_PERMISSION,
             )

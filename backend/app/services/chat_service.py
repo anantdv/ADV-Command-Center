@@ -15,6 +15,7 @@ from app.agents.router_agent import IntentResult, RouterAgent
 from app.agents.safety_agent import SafetyAgent, SafetyResult
 from app.core.audit import AuditEvent, log_audit_event
 from app.config import settings
+from app.core.exceptions import AppError
 from app.schemas.chat import (
     AssistantChatResponse,
     ChatActionResult,
@@ -46,6 +47,9 @@ from app.services.dashboard_service import DashboardService, dashboard_service
 from app.services.conversation_repository import InMemoryConversationRepository
 from app.services.conversation_state_engine import ConversationStateEngine, conversation_state_engine
 from app.services.suggestion_service import SuggestionService, suggestion_service
+from app.services.task_executor import TaskExecutor, plan_part, task_executor
+from app.services.task_plan_validator import TaskPlanValidator, task_plan_validator
+from app.services.task_planner import TaskPlanner, task_planner
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 from app.utils.suggestion_context_builder import SuggestionContextBuilder
@@ -55,6 +59,7 @@ from app.utils.payload_builder import PayloadBuilder
 from app.utils.confirmation_store import confirmation_store
 from app.schemas.entity_resolution import ChildRowResolution, EntitySearchContext, EntitySearchRequest
 from app.services.entity_resolution_service import entity_resolution_service
+from app.schemas.task_plan import ExecutionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +85,9 @@ class ChatService:
         report_composer_agent: ReportComposerAgent | None = None,
         suggestions: SuggestionService | None = None,
         state_engine: ConversationStateEngine | None = None,
+        planner: TaskPlanner | None = None,
+        plan_validator: TaskPlanValidator | None = None,
+        executor: TaskExecutor | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -96,6 +104,9 @@ class ChatService:
         self.suggestions = suggestions or suggestion_service
         self.suggestion_context = SuggestionContextBuilder()
         self.state_engine = state_engine or conversation_state_engine
+        self.planner = planner or task_planner
+        self.plan_validator = plan_validator or task_plan_validator
+        self.executor = executor or task_executor
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -105,6 +116,18 @@ class ChatService:
 
     async def get_messages(self, conversation_id: str) -> list[ChatMessage]:
         return await self.repository.get_messages(conversation_id)
+
+    async def get_plans(self, conversation_id: str):
+        return await self.executor.repository.list_for_conversation(conversation_id)
+
+    async def get_plan(self, plan_id: str):
+        return await self.executor.repository.get(plan_id)
+
+    async def cancel_plan(self, plan_id: str, user: str = "unknown"):
+        return await self.executor.cancel(plan_id, user)
+
+    async def retry_plan(self, plan_id: str, user: str = "unknown"):
+        return await self.executor.retry(plan_id, user)
 
     async def send_chat_message(
         self,
@@ -136,12 +159,18 @@ class ChatService:
             )
         )
 
-        selection_response = await self._handle_entity_selection_action(request, conversation.id, cookies, user) if state_decision.route == "structured_selection" else None
+        selection_intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+        selection_plan = self.planner.create_plan(request, state_context, state_decision, selection_intent) if state_decision.route == "structured_selection" else None
+        selection_response = None
+        if selection_plan:
+            self._validate_plan_or_raise(selection_plan)
+            selection_response, selection_plan = await self.executor.run(selection_plan, lambda: self._handle_entity_selection_action(request, conversation.id, cookies, user), user)
         if selection_response:
-            intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+            intent = selection_intent
             response = selection_response
             route = "entity_selection"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            self._attach_plan_part(response, selection_plan)
             await self._remember_pending_draft(response)
             await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
@@ -149,12 +178,18 @@ class ChatService:
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        draft_field_response = await self._handle_draft_field_action(request, conversation.id, cookies, user) if state_decision.route == "structured_draft_field" else None
+        draft_field_intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+        draft_field_plan = self.planner.create_plan(request, state_context, state_decision, draft_field_intent) if state_decision.route == "structured_draft_field" else None
+        draft_field_response = None
+        if draft_field_plan:
+            self._validate_plan_or_raise(draft_field_plan)
+            draft_field_response, draft_field_plan = await self.executor.run(draft_field_plan, lambda: self._handle_draft_field_action(request, conversation.id, cookies, user), user)
         if draft_field_response:
-            intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+            intent = draft_field_intent
             response = draft_field_response
             route = "draft_field_selection"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            self._attach_plan_part(response, draft_field_plan)
             await self._remember_pending_draft(response)
             await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
@@ -167,10 +202,13 @@ class ChatService:
             await self.repository.supersede_pending_draft(conversation.id, new_id("draft"))
             await self.repository.clear_pending_draft(conversation.id)
             fresh_draft_intent.conversation_id = conversation.id
-            response = await self._prepare_crud_or_resolve_entities(fresh_draft_intent, conversation.id, cookies, user)
+            plan = self.planner.create_plan(request, state_context, state_decision, fresh_draft_intent)
+            self._validate_plan_or_raise(plan)
+            response, plan = await self.executor.run(plan, lambda: self._prepare_crud_or_resolve_entities(fresh_draft_intent, conversation.id, cookies, user), user)
             intent = fresh_draft_intent
             route = "document_planner_new_session"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            self._attach_plan_part(response, plan)
             await self._remember_pending_draft(response)
             await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
@@ -178,7 +216,12 @@ class ChatService:
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": request.source or "typed", "resolved_intent": intent.intent, "execution_route": route, "new_session_created": True, "prior_session_superseded": True, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user) if state_decision.route == "draft_continue" else None
+        pending_plan_intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
+        pending_plan = self.planner.create_plan(request, state_context, state_decision, pending_plan_intent) if state_decision.route == "draft_continue" else None
+        pending_response = None
+        if pending_plan:
+            self._validate_plan_or_raise(pending_plan)
+            pending_response, pending_plan = await self.executor.run(pending_plan, lambda: self._maybe_continue_pending_draft(request, conversation.id, cookies, user), user)
         if pending_response:
             audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options", "draft_preview_updated", "draft_edit_failed", "show_draft_fields"} else pending_response.intent
             intent = IntentResult(
@@ -190,6 +233,7 @@ class ChatService:
             response = pending_response
             route = "document_planner_continue"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
+            self._attach_plan_part(response, pending_plan)
             await self._remember_pending_draft(response)
             await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
@@ -211,47 +255,56 @@ class ChatService:
                 doctype=followup.get("context", {}).get("doctype"),
                 report_name=followup.get("context", {}).get("report_name"),
             )
-            response = await self._handle_report_followup(followup, conversation.id, cookies, user)
+            plan = self.planner.create_plan(request, state_context, state_decision, intent, followup)
+            self._validate_plan_or_raise(plan)
+            response, plan = await self.executor.run(plan, lambda: self._handle_report_followup(followup, conversation.id, cookies, user), user)
+            self._attach_plan_part(response, plan)
         else:
             intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range)
             intent.conversation_id = conversation.id
             if intent.intent == "generate_file" and intent.source_type == "chat_result":
                 self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))
             safety = await self.safety.validate(intent)
+            plan = self.planner.create_plan(request, state_context, state_decision, intent)
+            self._validate_plan_or_raise(plan)
 
-            if not safety.allowed:
-                route = "safety_block"
-                response = self._blocked_response(conversation.id, intent, safety)
-            elif intent.intent in {"workflow_list_pending", "workflow_get_detail", "workflow_apply_action"}:
-                route = "workflow"
-                response = await self.workflow_agent.handle(intent, cookies, user)
-            elif intent.intent == "run_report":
-                route = "report"
-                response = await self.report_agent.handle(intent, cookies)
-            elif intent.intent in {"run_analytics", "generate_chart"}:
-                route = "analytics"
-                response = await self.analytics_agent.handle(intent, cookies, user)
-            elif intent.intent == "generate_file":
-                route = "file_generation"
-                response = await self.file_agent.handle(intent, cookies, user)
-            elif intent.intent in {"crud_create", "crud_update"}:
-                route = "crud_preview"
-                response = await self._prepare_crud_or_resolve_entities(intent, conversation.id, cookies, user)
-            elif intent.intent == "report_composer":
-                route = "report_composer"
-                response = await self.report_composer_agent.handle(intent, cookies, user)
-            elif intent.intent == "pin_to_dashboard":
-                route = "pin"
-                response = await self._pin_intent(intent, cookies, user)
-            elif intent.aggregation and intent.aggregation.enabled and intent.query_plan:
-                route = "aggregation"
-                response = await self.aggregation_agent.handle(intent.query_plan, cookies, user, conversation.id)
-            elif intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
-                route = "erp_data"
-                response = await self.erp_agent.handle(intent, cookies)
-            else:
+            async def execute_intent() -> AssistantChatResponse:
+                nonlocal route
+                if not safety.allowed:
+                    route = "safety_block"
+                    return self._blocked_response(conversation.id, intent, safety)
+                if intent.intent in {"workflow_list_pending", "workflow_get_detail", "workflow_apply_action"}:
+                    route = "workflow"
+                    return await self.workflow_agent.handle(intent, cookies, user)
+                if intent.intent == "run_report":
+                    route = "report"
+                    return await self.report_agent.handle(intent, cookies)
+                if intent.intent in {"run_analytics", "generate_chart"}:
+                    route = "analytics"
+                    return await self.analytics_agent.handle(intent, cookies, user)
+                if intent.intent == "generate_file":
+                    route = "file_generation"
+                    return await self.file_agent.handle(intent, cookies, user)
+                if intent.intent in {"crud_create", "crud_update"}:
+                    route = "crud_preview"
+                    return await self._prepare_crud_or_resolve_entities(intent, conversation.id, cookies, user)
+                if intent.intent == "report_composer":
+                    route = "report_composer"
+                    return await self.report_composer_agent.handle(intent, cookies, user)
+                if intent.intent == "pin_to_dashboard":
+                    route = "pin"
+                    return await self._pin_intent(intent, cookies, user)
+                if intent.aggregation and intent.aggregation.enabled and intent.query_plan:
+                    route = "aggregation"
+                    return await self.aggregation_agent.handle(intent.query_plan, cookies, user, conversation.id)
+                if intent.intent in {"list_records", "get_record", "summary_query", "chart_query", "write_blocked"}:
+                    route = "erp_data"
+                    return await self.erp_agent.handle(intent, cookies)
                 route = "clarification"
-                response = self._unsupported_response(conversation.id, intent.missing_info_hint)
+                return self._unsupported_response(conversation.id, intent.missing_info_hint)
+
+            response, plan = await self.executor.run(plan, execute_intent, user)
+            self._attach_plan_part(response, plan)
 
         response.extraction = ExtractionMeta(
             method=intent.extraction_method,
@@ -339,6 +392,12 @@ class ChatService:
         return response
 
     async def confirm_crud(self, request: ConfirmCrudRequest, cookies: dict | None = None, user: str = "unknown") -> ConfirmCrudResponse:
+        confirmation = confirmation_store.get(request.confirmation_id)
+        if confirmation:
+            plan = self.planner.create_confirmation_plan(confirmation)
+            self._validate_plan_or_raise(plan)
+            result, _ = await self.executor.run(plan, lambda: self.crud_agent.tools.confirm_crud_action(request.confirmation_id, cookies, user), user)
+            return result
         return await self.crud_agent.tools.confirm_crud_action(request.confirmation_id, cookies, user)
 
     async def cancel_crud(self, request: ConfirmCrudRequest, user: str = "unknown") -> CancelCrudResponse:
@@ -1428,6 +1487,20 @@ class ChatService:
                     "input_summary": part.input_summary,
                     "output_summary": part.output_summary,
                 })
+
+    def _validate_plan_or_raise(self, plan: ExecutionPlan) -> None:
+        errors = self.plan_validator.validate(plan)
+        if errors:
+            raise AppError("The command execution plan is invalid.", 409, {"plan_id": plan.id, "errors": errors})
+
+    @staticmethod
+    def _attach_plan_part(response: AssistantChatResponse, plan: ExecutionPlan | None) -> None:
+        if not plan:
+            return
+        part = plan_part(plan)
+        if not any(getattr(existing, "type", "") == "execution_plan" and getattr(existing, "plan_id", None) == plan.id for existing in response.parts):
+            response.parts.insert(1 if response.parts and getattr(response.parts[0], "type", "") == "text" else 0, part)
+        response.available_actions = sorted(set(response.available_actions or []) | {"inspect_plan"})
 
     async def _audit(
         self,

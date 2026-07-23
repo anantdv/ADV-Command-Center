@@ -69,6 +69,7 @@ class ConversationStateEngine:
         new_state = state_from_response(response)
         updated = context.model_copy(update={
             "active_state": new_state,
+            "active_plan_id": _response_plan_id(response) or context.active_plan_id,
             "draft_session_id": response.conversation_id if new_state.name.startswith("DRAFT") or new_state in {ConversationState.ENTITY_SELECTION, ConversationState.WAITING_USER_SELECTION, ConversationState.WAITING_USER_CONFIRMATION} else context.draft_session_id,
             "report_session_id": _response_report_id(response) or context.report_session_id,
             "active_doctype": _response_doctype(response) or context.active_doctype,
@@ -183,6 +184,13 @@ def _response_confirmation_id(response: AssistantChatResponse) -> str | None:
     for part in response.parts:
         if getattr(part, "type", "") == "confirmation":
             return getattr(part, "confirmation_id", None)
+    return None
+
+
+def _response_plan_id(response: AssistantChatResponse) -> str | None:
+    for part in response.parts:
+        if getattr(part, "type", "") == "execution_plan":
+            return getattr(part, "plan_id", None)
     return None
 
 

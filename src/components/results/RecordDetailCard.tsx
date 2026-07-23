@@ -2,6 +2,7 @@ import { ExternalLink, FileText } from 'lucide-react'
 import { formatCurrency } from '../../utils/formatters'
 import { useAuthStore } from '../../store/useAuthStore'
 import type { RecordDetailPart } from '../../types/chat'
+import { BusinessGraphPanel } from '../graph/BusinessGraphPanel'
 
 export function RecordDetailCard({ data }: { data: RecordDetailPart }) {
   const currency = useAuthStore(state => state.user?.companyCurrency) || String(data.summary?.currency || 'INR')
@@ -48,6 +49,7 @@ export function RecordDetailCard({ data }: { data: RecordDetailPart }) {
       </div>
       <button type="button" className="btn-secondary h-8 px-2 text-xs" disabled title="ERPNext deep links will be enabled after site URL mapping."><ExternalLink size={13}/>Open in ERPNext</button>
     </div>
+    <BusinessGraphPanel doctype={data.doctype} name={data.name}/>
   </div>
 }
 

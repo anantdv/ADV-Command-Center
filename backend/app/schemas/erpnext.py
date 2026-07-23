@@ -38,6 +38,10 @@ class FieldSchema(CamelModel):
     read_only: bool = False
     hidden: bool = False
     permlevel: int = 0
+    depends_on: str | None = None
+    fetch_from: str | None = None
+    default: Any = None
+    description: str | None = None
 
 
 class DoctypeSchema(CamelModel):

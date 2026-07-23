@@ -774,6 +774,32 @@ curl -X POST http://localhost:8000/api/chat/message \
   -d '{"message":"show pending approvals","module_context":"Selling"}'
 ```
 
+## Business Graph and Reasoning Engine
+
+The Business Graph discovers related ERPNext records from readable metadata and document fields. It does not query ERPNext directly and does not bypass Frappe permissions; each document expansion uses the existing ERPNext companion API path.
+
+Related documents:
+
+```bash
+curl "http://localhost:8000/api/business-graph/documents/Sales%20Invoice/ACC-SINV-2026-00122/related?depth=1"
+```
+
+Business timeline:
+
+```bash
+curl "http://localhost:8000/api/business-graph/documents/Purchase%20Order/PUR-ORD-2026-0001/timeline?depth=2"
+```
+
+Reason over a document:
+
+```bash
+curl -X POST http://localhost:8000/api/business-graph/reason \
+  -H "Content-Type: application/json" \
+  -d '{"doctype":"Purchase Order","name":"PUR-ORD-2026-0001","question":"What is impacted if I cancel this?","depth":2}'
+```
+
+Traversal is lazy, bounded, and cached. Inbound reverse indexes, comments, attachments, and workflow-transition edges are planned as the next graph hardening step.
+
 ## Communication Center
 
 The `/api/communications` router proxies only to the installed companion app and preserves the current Frappe `sid`. It never reads the ERPNext database directly.

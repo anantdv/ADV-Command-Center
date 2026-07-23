@@ -8,6 +8,7 @@ from app.config import settings
 from app.frappe.client import FrappeClient
 from app.schemas.entity_resolution import EntityMatch, EntitySearchRequest, EntitySearchResponse
 from app.services.erpnext_service import ERPNextService
+from app.services.metadata_service import MetadataService, metadata_service
 
 
 AUTO_RESOLVE_SCORE = 0.95
@@ -74,17 +75,25 @@ LABEL_FIELD = {
 class EntityResolutionService:
     """Resolve natural-language Link values to permission-filtered ERPNext records."""
 
-    def __init__(self, erp: ERPNextService | None = None):
+    def __init__(self, erp: ERPNextService | None = None, metadata: MetadataService | None = None):
         self.erp = erp or ERPNextService(FrappeClient(settings.frappe_base_url, settings.frappe_auth_mode, settings.frappe_api_key, settings.frappe_api_secret, settings.frappe_session_cookie_name))
+        self.metadata = metadata or metadata_service
 
     async def search(self, request: EntitySearchRequest, cookies: dict | None = None) -> EntitySearchResponse:
         doctype = request.doctype.strip()
+        metadata = None
         if doctype not in ALLOWED_ENTITY_DOCTYPES:
-            return EntitySearchResponse(doctype=doctype, query=request.query, matches=[])
+            try:
+                metadata = await self.metadata.get_doctype_intelligence(doctype, cookies)
+                if not metadata.permissions.allowed:
+                    return EntitySearchResponse(doctype=doctype, query=request.query, matches=[])
+            except Exception:
+                return EntitySearchResponse(doctype=doctype, query=request.query, matches=[])
         query = _normalize_query(request.query)
         if not query or len(query) < 2:
             return EntitySearchResponse(doctype=doctype, query=request.query, matches=[])
-        fields = SEARCH_FIELD_MAP.get(doctype, ["name"])
+        fields = SEARCH_FIELD_MAP.get(doctype) or (metadata.search.search_fields if metadata else ["name"])
+        fields = list(dict.fromkeys(["name", *fields]))[:8]
         try:
             rows = (await self.erp.list_records(doctype, {}, fields, 500, cookies=cookies)).records
         except Exception:
@@ -113,6 +122,7 @@ class EntityResolutionService:
         query_variants = _query_variants(doctype, query_norm)
         candidates = [name, label, str(row.get("item_code") or ""), str(row.get("barcode") or "")]
         candidates.extend(str(row.get(field) or "") for field in ("brand", "manufacturer", "supplier_part_no", "description", "item_group"))
+        candidates.extend(str(value) for key, value in row.items() if key not in {"disabled"} and value not in (None, ""))
         normalized = [_norm(value) for value in candidates if value]
         if query_norm in normalized:
             score, match_type = 1.0, "exact"

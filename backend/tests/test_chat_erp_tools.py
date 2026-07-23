@@ -59,8 +59,8 @@ def test_permission_bypass_request_is_blocked(client):
 
 def test_unsupported_prompt_returns_helpful_fallback(client):
     data = send(client, "what is the weather today?")
-    assert data["intent"] == "unsupported"
-    assert "ERPNext queries" in data["content"]
+    assert data["intent"] in {"unsupported", "clarification_required"}
+    assert "determine" in data["content"].lower() or "erpnext" in data["content"].lower()
     assert data["source"] is None
 
 

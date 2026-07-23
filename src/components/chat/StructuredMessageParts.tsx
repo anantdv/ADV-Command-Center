@@ -1,7 +1,7 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
-import { FileDown, FileSpreadsheet, Filter, LayoutDashboard, ListFilter, LockKeyhole, Pin, ShieldAlert, Sparkles } from 'lucide-react'
+import { CheckCircle2, Circle, Clock3, FileDown, FileSpreadsheet, Filter, LayoutDashboard, ListFilter, LockKeyhole, Pin, ShieldAlert, Sparkles, XCircle } from 'lucide-react'
 import { ToolExecutionCard } from './ToolExecutionCard'
 import { GeneratedFileCard } from './GeneratedFileCard'
 import { ConfirmationCard } from './ConfirmationCard'
@@ -37,6 +37,7 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
     {source&&<SourceStrip source={source} permission={permission}/>} 
     {parts.map((part,index) => {
       if(part.type==='text') return <p key={`text-${index}`}>{part.content}</p>
+      if(part.type==='execution_plan') return <ExecutionPlanCard key={`plan-${index}`} part={part}/>
       if(part.type==='tool_call') return <ToolExecutionCard key={`tool-${index}`} part={part}/>
       if(part.type==='table') return <DynamicTable key={`table-${index}`} part={part} currency={currency} onRowClick={onRowClick}/>
       if(part.type==='chart') return <DynamicChart key={`chart-${index}`} part={part}/>
@@ -53,6 +54,31 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
     })}
     {permission&&!permission.allowed&&<div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><ShieldAlert size={15} className="shrink-0"/><span>{permission.reason||'ERPNext restricted this request.'}</span></div>}
     {(actions.length>0||actionSlot)&&<div className="flex flex-wrap items-center gap-2"><SuggestedActions actions={actions} onAction={action=>onAction?.(action,source)}/>{actionSlot}</div>} 
+  </div>
+}
+
+function ExecutionPlanCard({part}:{part:Extract<ChatMessagePart,{type:'execution_plan'}>}){
+  const statusClass={
+    pending:'bg-slate-50 text-slate-500 ring-slate-200',
+    running:'bg-indigo-50 text-indigo-700 ring-indigo-200',
+    waiting_user:'bg-amber-50 text-amber-700 ring-amber-200',
+    completed:'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    failed:'bg-rose-50 text-rose-700 ring-rose-200',
+    cancelled:'bg-slate-100 text-slate-500 ring-slate-200',
+    skipped:'bg-slate-50 text-slate-400 ring-slate-200',
+  }[part.status]
+  return <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-xs font-bold text-slate-800">{part.title}</p>
+      <span className={`rounded-full px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider ring-1 ${statusClass}`}>{part.status.replace('_',' ')}</span>
+      {part.resume_point&&<span className="text-[10px] font-semibold text-slate-400">Waiting for {part.resume_point.replace('_',' ')}</span>}
+    </div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      {part.steps.map(step=><div key={step.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] ${step.id===part.current_step_id?'border-indigo-200 bg-indigo-50/70':'border-slate-100 bg-slate-50/60'}`}>
+        {step.status==='completed'?<CheckCircle2 size={14} className="text-emerald-600"/>:step.status==='failed'?<XCircle size={14} className="text-rose-600"/>:step.status==='running'||step.status==='waiting_user'?<Clock3 size={14} className="text-amber-600"/>:<Circle size={14} className="text-slate-300"/>}
+        <div className="min-w-0"><p className="truncate font-bold text-slate-700">{step.label}</p><p className="truncate text-[9px] uppercase tracking-wider text-slate-400">{step.action} · {step.status.replace('_',' ')}</p></div>
+      </div>)}
+    </div>
   </div>
 }
 
