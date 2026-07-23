@@ -19,8 +19,23 @@ async def pending_approvals(request: Request, user: CurrentUserDep, doctype: str
     return ApiResponse(data=await service().list_pending_approvals(doctype, get_frappe_cookies(request), limit, user.user))
 
 
+@router.get("/pending", response_model=ApiResponse[PendingApprovalsResponse])
+async def pending(request: Request, user: CurrentUserDep, doctype: str | None = Query(None), limit: int = Query(50, ge=1, le=200)) -> ApiResponse[PendingApprovalsResponse]:
+    return ApiResponse(data=await service().list_pending_approvals(doctype, get_frappe_cookies(request), limit, user.user))
+
+
+@router.get("/pending/{doctype}", response_model=ApiResponse[PendingApprovalsResponse])
+async def pending_by_doctype(doctype: str, request: Request, user: CurrentUserDep, limit: int = Query(50, ge=1, le=200)) -> ApiResponse[PendingApprovalsResponse]:
+    return ApiResponse(data=await service().list_pending_approvals(doctype, get_frappe_cookies(request), limit, user.user))
+
+
 @router.get("/documents/{doctype}/{name}", response_model=ApiResponse[WorkflowDocumentDetail])
 async def document_detail(doctype: str, name: str, request: Request, user: CurrentUserDep) -> ApiResponse[WorkflowDocumentDetail]:
+    return ApiResponse(data=await service().get_document_detail(doctype, name, get_frappe_cookies(request), user.user))
+
+
+@router.get("/document/{doctype}/{name}", response_model=ApiResponse[WorkflowDocumentDetail])
+async def document(doctype: str, name: str, request: Request, user: CurrentUserDep) -> ApiResponse[WorkflowDocumentDetail]:
     return ApiResponse(data=await service().get_document_detail(doctype, name, get_frappe_cookies(request), user.user))
 
 
@@ -32,3 +47,13 @@ async def document_actions(doctype: str, name: str, request: Request, user: Curr
 @router.post("/apply-action", response_model=ApiResponse[ApplyWorkflowActionResponse])
 async def apply_action(payload: ApplyWorkflowActionRequest, request: Request, user: CurrentUserDep) -> ApiResponse[ApplyWorkflowActionResponse]:
     return ApiResponse(data=await service().apply_action(payload, get_frappe_cookies(request), user.user))
+
+
+@router.post("/action", response_model=ApiResponse[ApplyWorkflowActionResponse])
+async def action(payload: ApplyWorkflowActionRequest, request: Request, user: CurrentUserDep) -> ApiResponse[ApplyWorkflowActionResponse]:
+    return ApiResponse(data=await service().apply_action(payload, get_frappe_cookies(request), user.user))
+
+
+@router.get("/debug", response_model=ApiResponse[dict])
+async def debug(request: Request, user: CurrentUserDep, doctype: str | None = Query(None), limit: int = Query(50, ge=1, le=200)) -> ApiResponse[dict]:
+    return ApiResponse(data=await service().debug(doctype, get_frappe_cookies(request), limit, user.user))

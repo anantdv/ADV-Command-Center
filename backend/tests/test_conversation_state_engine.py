@@ -74,3 +74,12 @@ def test_report_followup_uses_report_state(client):
     assert chart["response_type"] == "report_result"
     assert chart["current_state"] == "REPORT_READY"
     assert any(part["type"] == "chart" for part in chart["parts"])
+
+
+def test_workflow_query_bypasses_active_draft(client):
+    draft = _send(client, "create po for bnbm")
+    approvals = _send(client, "show my pending approvals", draft["conversation_id"])
+
+    assert approvals["intent"] == "workflow_list_pending"
+    assert approvals["response_type"] == "workflow_list_pending"
+    assert "draft" not in approvals["content"].lower()

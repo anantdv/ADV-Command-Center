@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Boxes, ChevronDown, ChevronLeft, ChevronRight,
   GraduationCap, Headphones, LayoutDashboard, Library, Menu, Settings, ShieldCheck,
-  Sparkles, X, Mail, type LucideProps,
+  Sparkles, X, Mail, ClipboardCheck, type LucideProps,
 } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { useAppStore } from '../../store/useAppStore'
@@ -14,6 +14,7 @@ type Item = { label: string; path: string; icon: ComponentType<LucideProps>; chi
 const nav: Item[] = [
   { label: 'Overview', path: '/overview', icon: LayoutDashboard },
   { label: 'Command Center', path: '/command-center', icon: Sparkles },
+  { label: 'Approvals', path: '/approvals', icon: ClipboardCheck },
   { label: 'Communications', path: '/communications', icon: Mail },
   { label: 'Modules', path: '/modules', icon: Boxes, children: ['Accounts','Selling','Buying','Stock','CRM','Projects','Support','HR','Assets','Manufacturing'].map(x => ({ label: x, path: `/modules/${x.toLowerCase()}` })) },
   { label: 'Library', path: '/library', icon: Library, children: [{label:'Spreadsheets',path:'/library/spreadsheets'},{label:'PDF Reports',path:'/library/pdf'},{label:'Charts',path:'/library/charts'},{label:'Dashboards',path:'/library/dashboards'}] },

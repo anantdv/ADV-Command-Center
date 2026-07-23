@@ -47,3 +47,4 @@ GET_PENDING_WORKFLOW_DOCUMENTS = "/api/method/ai_command_center.api.workflow.get
 GET_WORKFLOW_DOCUMENT_DETAIL = "/api/method/ai_command_center.api.workflow.get_workflow_document_detail"
 GET_AVAILABLE_WORKFLOW_ACTIONS = "/api/method/ai_command_center.api.workflow.get_available_workflow_actions"
 APPLY_WORKFLOW_ACTION = "/api/method/ai_command_center.api.workflow.apply_workflow_action"
+WORKFLOW_DEBUG = "/api/method/ai_command_center.api.workflow.debug"

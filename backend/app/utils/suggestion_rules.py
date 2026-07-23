@@ -11,12 +11,15 @@ def get_suggestions_for_context(ctx: SuggestionContext) -> list[SuggestedPrompt]
     if ctx.result_type == "empty":
         return [_prompt("Remove Filters", _same("Show the same records without filters", ctx), "remove_filters"), _prompt("Broaden Date Range", _same("Search the same records for this year", ctx), "broaden_date"), _prompt("Search All Records", f"Show all {ctx.doctype or ctx.source_name or 'records'}", "search_all")]
     if ctx.result_type == "workflow_pending_list":
-        return [
-            _prompt("Open First Document", "Open the first pending approval document", "open_first", group="workflow"),
+        suggestions = []
+        if (ctx.row_count or 0) > 0:
+            suggestions.append(_prompt("Open First Document", "Open the first pending approval document", "open_first", group="workflow"))
+        suggestions.extend([
             _prompt("Show Sales Invoice Approvals", "Show my pending Sales Invoice approvals", "sales_invoice_approvals", group="workflow"),
             _prompt("Show Purchase Order Approvals", "Show my pending Purchase Order approvals", "purchase_order_approvals", group="workflow"),
             _prompt("Refresh", ctx.previous_prompt or "Show my pending approvals", "refresh", group="workflow"),
-        ]
+        ])
+        return suggestions
     if ctx.result_type == "workflow_detail":
         for action in ctx.workflow_actions:
             suggestions.append(SuggestedPrompt(id=_id("wf", action), label=action, type="workflow_action", action_type="apply_workflow_action", payload={"doctype": ctx.doctype, "name": ctx.document_name, "action": action}, risk="medium", requires_confirmation=True, group="workflow"))

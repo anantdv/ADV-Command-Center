@@ -11,6 +11,8 @@ class ConversationState(str, Enum):
     REPORT_RUNNING = "REPORT_RUNNING"
     REPORT_READY = "REPORT_READY"
     REPORT_DETAIL = "REPORT_DETAIL"
+    WORKFLOW_READY = "WORKFLOW_READY"
+    WORKFLOW_DETAIL = "WORKFLOW_DETAIL"
     ENTITY_SELECTION = "ENTITY_SELECTION"
     DRAFT_STARTED = "DRAFT_STARTED"
     DRAFT_COLLECTING = "DRAFT_COLLECTING"
@@ -39,6 +41,8 @@ class ConversationContext(BaseModel):
     active_document: str | None = None
     active_module: str | None = None
     pending_action: str | None = None
+    expected_field: str | None = None
+    expected_entity_type: str | None = None
     pending_entities: list[dict[str, Any]] = Field(default_factory=list)
     pending_fields: list[dict[str, Any]] = Field(default_factory=list)
     selected_entities: dict[str, Any] = Field(default_factory=dict)

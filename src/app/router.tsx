@@ -5,6 +5,7 @@ import { AuthGuard } from '../components/auth/AuthGuard'
 
 const OverviewPage = lazy(() => import('../pages/OverviewPage').then(m => ({ default: m.OverviewPage })))
 const CommandCenterPage = lazy(() => import('../pages/CommandCenterPage').then(m => ({ default: m.CommandCenterPage })))
+const ApprovalsPage = lazy(() => import('../pages/ApprovalsPage').then(m => ({ default: m.ApprovalsPage })))
 const ModulesPage = lazy(() => import('../pages/ModulesPage').then(m => ({ default: m.ModulesPage })))
 const ModuleDetailPage = lazy(() => import('../pages/ModuleDetailPage').then(m => ({ default: m.ModuleDetailPage })))
 const SellingModulePage = lazy(() => import('../pages/modules/SellingModulePage').then(m => ({ default: m.SellingModulePage })))
@@ -23,6 +24,7 @@ export const router=createBrowserRouter([
   {path:'/',element:<AuthGuard><AppLayout/></AuthGuard>,children:[
   {index:true,element:<Navigate to="/overview" replace/>},
   {path:'overview',element:page(<OverviewPage/>)},{path:'command-center',element:page(<CommandCenterPage/>)},
+  {path:'approvals',element:page(<ApprovalsPage/>)},
   {path:'communications',element:page(<CommunicationCenterPage/>)},
   {path:'modules',element:page(<ModulesPage/>)},{path:'modules/selling',element:page(<SellingModulePage/>)},{path:'modules/:moduleName/doctype/:doctype',element:page(<ModuleDoctypeListPage/>)},{path:'modules/:moduleName',element:page(<ModuleWorkspacePage/>)},{path:'modules/:moduleId/legacy',element:page(<ModuleDetailPage/>)},
   {path:'library',element:page(<LibraryPage/>)},{path:'library/:category',element:page(<LibraryPage/>)},

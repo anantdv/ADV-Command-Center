@@ -6,7 +6,7 @@ from app.config import settings
 from app.core.audit import AuditEvent, log_audit_event
 from app.core.exceptions import AppError, PermissionDenied
 from app.frappe.client import FrappeClient
-from app.frappe.paths import APPLY_WORKFLOW_ACTION, GET_AVAILABLE_WORKFLOW_ACTIONS, GET_PENDING_WORKFLOW_DOCUMENTS, GET_WORKFLOW_DOCUMENT_DETAIL
+from app.frappe.paths import APPLY_WORKFLOW_ACTION, GET_AVAILABLE_WORKFLOW_ACTIONS, GET_PENDING_WORKFLOW_DOCUMENTS, GET_WORKFLOW_DOCUMENT_DETAIL, WORKFLOW_DEBUG
 from app.schemas.workflow import ApplyWorkflowActionRequest, ApplyWorkflowActionResponse, PendingApprovalsResponse, PendingWorkflowDocument, WorkflowAction, WorkflowDocumentDetail
 
 
@@ -49,6 +49,20 @@ class WorkflowService:
         detail = await self.get_document_detail(doctype, name, cookies, user)
         await self._audit("workflow_actions_loaded", user, doctype, name, True)
         return detail.available_actions
+
+    async def debug(self, doctype: str | None = None, cookies: dict | None = None, limit: int = 50, user: str = "unknown") -> dict[str, Any]:
+        if settings.use_mock_data:
+            docs = _mock_pending()[:limit]
+            return {
+                "session_user": user,
+                "workflow_actions_found": len(docs),
+                "after_permission_filter": len(docs),
+                "after_transition_filter": len(docs),
+                "records": [doc.model_dump(mode="json") for doc in docs if not doctype or doc.doctype == doctype],
+            }
+        data = self._unwrap(await self.client.get(WORKFLOW_DEBUG, {"doctype": doctype, "limit": limit}, cookies))
+        await self._audit("workflow_debug_viewed", user, doctype=doctype, allowed=True, output=f"{data.get('after_transition_filter', 0) if isinstance(data, dict) else 0} documents")
+        return data if isinstance(data, dict) else {"records": data}
 
     async def apply_action(self, request: ApplyWorkflowActionRequest, cookies: dict | None = None, user: str = "unknown") -> ApplyWorkflowActionResponse:
         if settings.use_mock_data:

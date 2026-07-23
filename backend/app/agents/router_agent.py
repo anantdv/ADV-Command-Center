@@ -163,6 +163,17 @@ class RouterAgent:
                 missing_info_hint="Please select a chart or report result first, then choose that action from the result buttons.",
                 date_range=date_range_context,
             )
+        workflow_intent = parse_workflow_intent(message)
+        if workflow_intent:
+            return IntentResult(
+                intent=workflow_intent["intent"],
+                doctype=workflow_intent.get("doctype"),
+                record_name=workflow_intent.get("record_name"),
+                data={"action": workflow_intent["action"]} if workflow_intent.get("action") else None,
+                confidence=0.98,
+                raw_prompt=message,
+                date_range=date_range_context,
+            )
         planned_create = self._planned_create_intent(message)
         if planned_create:
             return self._with_date_context(planned_create, message, date_range_context)

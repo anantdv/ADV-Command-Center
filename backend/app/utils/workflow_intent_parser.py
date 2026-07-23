@@ -18,9 +18,14 @@ def parse_workflow_intent(message: str) -> dict[str, Any] | None:
     if re.search(r"\b(?:approval details|approval detail|workflow details|workflow detail|actions available|available actions)\b", text):
         return {"intent": "workflow_get_detail", "doctype": doctype, "record_name": docname}
 
-    action_match = re.search(r"\b(approve|reject)\b", text)
+    action_match = re.search(r"\b(approve|reject|send back|send-back|return)\b", text)
     if action_match and (docname or doctype):
-        return {"intent": "workflow_apply_action", "doctype": doctype, "record_name": docname, "action": action_match.group(1).title()}
+        action = action_match.group(1)
+        if action in {"send back", "send-back", "return"}:
+            action = "Send Back"
+        else:
+            action = action.title()
+        return {"intent": "workflow_apply_action", "doctype": doctype, "record_name": docname, "action": action}
 
     return None
 

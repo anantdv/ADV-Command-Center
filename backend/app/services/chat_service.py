@@ -370,14 +370,16 @@ class ChatService:
             if resolution:
                 message_id = new_id("msg")
                 summary = "I found item rows in your request. Please choose the matching ERPNext records before I prepare the draft preview."
-                await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": message_id, "status": "resolving_entities"})
+                await self._save_resolution_pending_draft(conversation_id, intent.doctype, intent.data or {}, message_id, resolution)
                 return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="child_rows_resolution_required", parts=[TextPart(content=summary), resolution], permission=PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
             readiness = self._evaluate_draft_readiness(intent.doctype, intent.data or {})
             if not readiness["ready"]:
                 warehouse_blocked = any(item.get("fieldname") == "warehouse" for item in readiness["blocking_requirements"])
                 if warehouse_blocked:
                     response = await self._draft_warehouse_options_response(conversation_id, intent.doctype, intent.data or {}, cookies, intent.raw_prompt)
-                    await self.repository.save_pending_draft(conversation_id, {"doctype": intent.doctype, "operation": "create", "data": intent.data or {}, "message_id": response.message_id, "status": "awaiting_warehouse", "blocking_requirements": readiness["blocking_requirements"]})
+                    current = await self.repository.get_pending_draft(conversation_id) or {}
+                    current["blocking_requirements"] = readiness["blocking_requirements"]
+                    await self.repository.save_pending_draft(conversation_id, current)
                     return response
         response = await self.crud_agent.handle(intent, cookies, user)
         if draft_changes:
@@ -448,6 +450,9 @@ class ChatService:
         if not doctype:
             return None
         collected = dict(pending.get("data") or {})
+        contextual = await self._try_contextual_pending_followup(pending, doctype, collected, request.message, conversation_id, cookies, user)
+        if contextual:
+            return contextual
         warehouse_requirement = self._warehouse_requirement(collected) if doctype == "Purchase Order" else []
         if warehouse_requirement and self._warehouse_options_requested(text):
             return await self._draft_warehouse_options_response(conversation_id, doctype, collected, cookies, request.message)
@@ -501,6 +506,7 @@ class ChatService:
         if table_field == "__parent__":
             data[fieldname] = selected
             data.pop(f"{fieldname}_query", None)
+            data.pop("_pending_parent_field", None)
         else:
             rows = list(data.get(table_field) or [])
             for index, row in enumerate(rows):
@@ -519,6 +525,92 @@ class ChatService:
             data[table_field] = rows
         intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=request.message, confidence=1)
         return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+
+    async def _try_contextual_pending_followup(
+        self,
+        pending: dict[str, Any],
+        doctype: str,
+        data: dict[str, Any],
+        message: str,
+        conversation_id: str,
+        cookies: dict | None,
+        user: str,
+    ) -> AssistantChatResponse | None:
+        """Resolve short replies against the active draft's expected field first.
+
+        This is intentionally before the normal payload parser. When the draft is
+        waiting for a Warehouse, a reply like "use POM warehouse" must never be
+        interpreted as a new item row/query.
+        """
+        expected = self._expected_followup(pending, doctype, data, message)
+        if not expected:
+            return None
+        fieldname = expected["fieldname"]
+        target_doctype = expected.get("target_doctype")
+        logger.info(
+            "contextual_followup_detected",
+            extra={
+                "conversation_id": conversation_id,
+                "doctype": doctype,
+                "expected_field": fieldname,
+                "target_doctype": target_doctype,
+                "status": pending.get("status"),
+            },
+        )
+        if fieldname == "warehouse":
+            selected = await self._resolve_pending_option_or_entity(
+                pending,
+                fieldname,
+                "Warehouse",
+                message,
+                data,
+                cookies,
+            )
+            if not selected:
+                return await self._draft_warehouse_options_response(conversation_id, doctype, data, cookies, message)
+            self._apply_contextual_field(data, expected, selected)
+            intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=message, confidence=.99)
+            return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+        if target_doctype:
+            selected = await self._resolve_pending_option_or_entity(pending, fieldname, target_doctype, message, data, cookies)
+            if selected:
+                self._apply_contextual_field(data, expected, selected)
+                intent = IntentResult(intent="crud_create", operation="create", doctype=doctype, data=data, conversation_id=conversation_id, raw_prompt=message, confidence=.99)
+                return await self._prepare_crud_or_resolve_entities(intent, conversation_id, cookies, user)
+            query = self._clean_contextual_value(message, fieldname)
+            if not query:
+                return None
+            search = await entity_resolution_service.search(
+                EntitySearchRequest(
+                    doctype=target_doctype,
+                    query=query,
+                    context=EntitySearchContext(
+                        parent_doctype=doctype,
+                        company=str(data.get("company") or ""),
+                        supplier=str(data.get("supplier") or ""),
+                        customer=str(data.get("customer") or ""),
+                        warehouse=str(data.get("set_warehouse") or data.get("warehouse") or ""),
+                    ),
+                ),
+                cookies,
+            )
+            resolution = ChildRowResolution(
+                row_id=str(expected.get("row_id") or f"parent-{fieldname}"),
+                source_text=query,
+                status="needs_selection" if search.matches else "no_match",
+                extracted={},
+                link_field=fieldname,
+                query=query,
+                matches=search.matches,
+                message=f"Please select the ERPNext {target_doctype}.",
+            )
+            table_field = str(expected.get("table_field") or "__parent__")
+            part = ChildRowsResolutionPart(draft_session_id=conversation_id, doctype=doctype, table_field=table_field, rows=[resolution])
+            message_id = new_id("msg")
+            summary = f"I searched {target_doctype} for “{query}”. Please choose the correct match before I continue the draft."
+            await self._save_resolution_pending_draft(conversation_id, doctype, data, message_id, part)
+            return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="child_rows_resolution_required", parts=[TextPart(content=summary), part], permission=PermissionMeta(allowed=True, risk_level="medium", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
+        return None
 
     async def _handle_draft_field_action(self, request: ChatMessageRequest, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse | None:
         action = request.structured_action or {}
@@ -610,6 +702,215 @@ class ChatService:
             "Stock Entry": {"from_warehouse": "Warehouse", "to_warehouse": "Warehouse"},
         }
         return mapping.get(doctype, {})
+
+    @staticmethod
+    def _link_target_for_field(fieldname: str, doctype: str | None = None) -> str | None:
+        generic = {
+            "supplier": "Supplier",
+            "customer": "Customer",
+            "party_name": "Customer",
+            "item_code": "Item",
+            "warehouse": "Warehouse",
+            "set_warehouse": "Warehouse",
+            "from_warehouse": "Warehouse",
+            "to_warehouse": "Warehouse",
+            "company": "Company",
+            "currency": "Currency",
+            "cost_center": "Cost Center",
+            "project": "Project",
+            "account": "Account",
+            "price_list": "Price List",
+            "buying_price_list": "Price List",
+            "selling_price_list": "Price List",
+        }
+        return generic.get(fieldname) or (ChatService._parent_link_fields(doctype or "").get(fieldname) if doctype else None)
+
+    def _expected_followup(self, pending: dict[str, Any], doctype: str, data: dict[str, Any], message: str) -> dict[str, Any] | None:
+        explicit_field = str(pending.get("expected_field") or "").strip()
+        status = str(pending.get("status") or "")
+        if explicit_field:
+            return {
+                "fieldname": explicit_field,
+                "target_doctype": pending.get("expected_entity_type") or self._link_target_for_field(explicit_field, doctype),
+                "table_field": pending.get("expected_table_field"),
+                "row_ids": list(pending.get("expected_row_ids") or []),
+            }
+        if status.startswith("awaiting_"):
+            fieldname = status.replace("awaiting_", "", 1)
+            return {
+                "fieldname": fieldname,
+                "target_doctype": self._link_target_for_field(fieldname, doctype),
+                "table_field": pending.get("expected_table_field"),
+                "row_ids": list(pending.get("expected_row_ids") or []),
+            }
+        entities = list(pending.get("pending_entities") or [])
+        if entities:
+            chosen = self._choose_pending_entity(entities, message, doctype, data)
+            if chosen:
+                return chosen
+        requirements = list(pending.get("blocking_requirements") or [])
+        if requirements:
+            requirement = requirements[0]
+            fieldname = str(requirement.get("fieldname") or "")
+            if fieldname:
+                return {
+                    "fieldname": fieldname,
+                    "target_doctype": self._link_target_for_field(fieldname, doctype),
+                    "table_field": requirement.get("table_field"),
+                    "row_ids": [str(requirement.get("row_id"))] if requirement.get("row_id") else [],
+                }
+        if self._warehouse_requirement(data):
+            return {"fieldname": "warehouse", "target_doctype": "Warehouse", "table_field": "items", "row_ids": self._warehouse_requirement(data)}
+        return None
+
+    def _choose_pending_entity(self, entities: list[dict[str, Any]], message: str, doctype: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        text = message.lower()
+        field_keywords = {
+            "supplier": ("supplier", "vendor"),
+            "customer": ("customer", "client"),
+            "party_name": ("customer", "party"),
+            "item_code": ("item", "product", "sku"),
+            "warehouse": ("warehouse", "store", "stock location"),
+            "company": ("company",),
+            "currency": ("currency",),
+        }
+        for entity in entities:
+            fieldname = str(entity.get("fieldname") or "")
+            if any(keyword in text for keyword in field_keywords.get(fieldname, ())):
+                return entity
+        parent_entities = [entity for entity in entities if entity.get("table_field") == "__parent__"]
+        if len(parent_entities) == 1 and not self._looks_like_item_followup(message):
+            return parent_entities[0]
+        if len(entities) == 1:
+            return entities[0]
+        if re.fullmatch(r"\s*\d+\s*", message):
+            return entities[0]
+        return None
+
+    @staticmethod
+    def _looks_like_item_followup(message: str) -> bool:
+        return bool(re.search(r"\b(item|qty|quantity|rate|price|uom|warehouse|pcs|pieces|bags|cartons|boxes)\b", message.lower()))
+
+    async def _resolve_pending_option_or_entity(
+        self,
+        pending: dict[str, Any],
+        fieldname: str,
+        target_doctype: str,
+        message: str,
+        data: dict[str, Any],
+        cookies: dict | None,
+    ) -> str | None:
+        option_value = self._select_from_pending_options(pending, message)
+        if option_value:
+            return option_value
+        query = self._clean_contextual_value(message, fieldname)
+        index_match = re.fullmatch(r"\s*(?:option\s*)?(\d+)\s*", message, flags=re.I)
+        if target_doctype == "Warehouse" and index_match:
+            options = await self._warehouse_options(data, cookies, "")
+            active = [option for option in options if not option.disabled]
+            index = int(index_match.group(1)) - 1
+            if 0 <= index < len(active):
+                return active[index].value
+        if not query:
+            return None
+        if target_doctype == "Warehouse":
+            options = await self._warehouse_options(data, cookies, query)
+            exact = [option for option in options if not option.disabled and option.value.lower() == query.lower()]
+            if exact:
+                return exact[0].value
+            active = [option for option in options if not option.disabled]
+            if len(active) == 1:
+                return active[0].value
+            return None
+        search = await entity_resolution_service.search(
+            EntitySearchRequest(
+                doctype=target_doctype,
+                query=query,
+                context=EntitySearchContext(
+                    parent_doctype=str(data.get("doctype") or ""),
+                    company=str(data.get("company") or ""),
+                    supplier=str(data.get("supplier") or ""),
+                    customer=str(data.get("customer") or ""),
+                    warehouse=str(data.get("set_warehouse") or data.get("warehouse") or ""),
+                ),
+            ),
+            cookies,
+        )
+        status, selected = entity_resolution_service.classify(search.matches)
+        return selected if status == "resolved" else None
+
+    @staticmethod
+    def _select_from_pending_options(pending: dict[str, Any], message: str) -> str | None:
+        options = list(pending.get("last_options") or [])
+        entities = list(pending.get("pending_entities") or [])
+        if not options and entities:
+            first_matches = entities[0].get("matches") or []
+            options = first_matches
+        if not options:
+            return None
+        index_match = re.fullmatch(r"\s*(?:option\s*)?(\d+)\s*", message, flags=re.I)
+        if index_match:
+            index = int(index_match.group(1)) - 1
+            if 0 <= index < len(options):
+                option = options[index]
+                if not option.get("disabled"):
+                    return str(option.get("value") or "")
+        cleaned = ChatService._clean_contextual_value(message, str(pending.get("expected_field") or ""))
+        if not cleaned:
+            return None
+        normalized = cleaned.lower()
+        for option in options:
+            if option.get("disabled"):
+                continue
+            value = str(option.get("value") or "")
+            label = str(option.get("label") or "")
+            if normalized in {value.lower(), label.lower()}:
+                return value
+        return None
+
+    @staticmethod
+    def _clean_contextual_value(message: str, fieldname: str = "") -> str:
+        text = " ".join(str(message or "").strip().split())
+        text = re.sub(r"^(?:use|select|choose|set|make|pick|apply)\s+(?:the\s+)?", "", text, flags=re.I).strip()
+        text = re.sub(r"^(?:option\s*)?\d+\s*[-.)]?\s*", "", text, flags=re.I).strip()
+        labels = {
+            "supplier": r"(?:as\s+)?supplier|vendor",
+            "customer": r"(?:as\s+)?customer|client",
+            "party_name": r"(?:as\s+)?customer|party",
+            "item_code": r"(?:as\s+)?item|product|sku",
+            "warehouse": r"(?:as\s+)?warehouse|warehouses|store|stock location",
+            "company": r"(?:as\s+)?company",
+            "currency": r"(?:as\s+)?currency",
+        }
+        pattern = labels.get(fieldname)
+        if pattern:
+            text = re.sub(rf"\b(?:{pattern})\b", "", text, flags=re.I).strip()
+        text = re.sub(r"\b(?:for\s+all\s+items?|for\s+the\s+draft|please)\b", "", text, flags=re.I).strip(" .:-")
+        return " ".join(text.split())
+
+    @staticmethod
+    def _apply_contextual_field(data: dict[str, Any], expected: dict[str, Any], value: str) -> None:
+        fieldname = str(expected.get("fieldname") or "")
+        table_field = str(expected.get("table_field") or "")
+        row_ids = {str(row_id) for row_id in (expected.get("row_ids") or []) if row_id}
+        if table_field and table_field not in {"__parent__", "None"}:
+            rows = list(data.get(table_field) or [])
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                current_id = str(row.get("row_id") or f"row-{index+1}")
+                if not row_ids or current_id in row_ids:
+                    row[fieldname] = value
+                    row.pop(f"{fieldname}_query", None)
+                    if fieldname == "item_code":
+                        row.pop("item_query", None)
+                    rows[index] = row
+            data[table_field] = rows
+            if fieldname == "warehouse":
+                data["set_warehouse"] = value
+            return
+        data[fieldname] = value
+        data.pop(f"{fieldname}_query", None)
 
     async def _selected_item_defaults(self, item_code: str, cookies: dict | None) -> dict[str, Any]:
         try:
@@ -1052,7 +1353,18 @@ class ChatService:
             message="Choose a warehouse for the Purchase Order items.",
             options=options,
         )
-        await self.repository.save_pending_draft(conversation_id, {"doctype": doctype, "operation": "create", "data": data, "message_id": message_id, "status": "awaiting_warehouse"})
+        await self.repository.save_pending_draft(conversation_id, {
+            "doctype": doctype,
+            "operation": "create",
+            "data": data,
+            "message_id": message_id,
+            "status": "awaiting_warehouse",
+            "expected_field": "warehouse",
+            "expected_entity_type": "Warehouse",
+            "expected_table_field": "items",
+            "expected_row_ids": row_ids,
+            "last_options": [option.model_dump() for option in options],
+        })
         return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent="draft_field_options", parts=[TextPart(content=summary), part], permission=PermissionMeta(allowed=True, risk_level="low", confirmation_required=True), id=message_id, content=summary, created_at=utc_now())
 
     async def _try_apply_warehouse_from_text(self, data: dict[str, Any], message: str, cookies: dict | None) -> bool:
@@ -1113,13 +1425,22 @@ class ChatService:
         preview = next((part for part in response.parts if isinstance(part, RecordPreviewPart)), None)
         confirmation = next((part for part in response.parts if isinstance(part, ConfirmationPart)), None)
         field_options = next((part for part in response.parts if isinstance(part, DraftFieldOptionsPart)), None)
+        resolution = next((part for part in response.parts if isinstance(part, ChildRowsResolutionPart)), None)
         if missing:
             await self.repository.save_pending_draft(response.conversation_id, {"doctype": missing.doctype, "operation": missing.operation, "record_name": missing.record_name, "data": missing.collected_data, "message_id": response.message_id})
+        elif resolution:
+            current = await self.repository.get_pending_draft(response.conversation_id) or {"doctype": resolution.doctype, "operation": "create", "data": {}}
+            await self._save_resolution_pending_draft(response.conversation_id, resolution.doctype, dict(current.get("data") or {}), response.message_id, resolution)
         elif field_options:
             current = await self.repository.get_pending_draft(response.conversation_id)
             if current:
                 current["message_id"] = response.message_id
                 current["status"] = f"awaiting_{field_options.fieldname}"
+                current["expected_field"] = field_options.fieldname
+                current["expected_entity_type"] = self._link_target_for_field(field_options.fieldname, field_options.doctype)
+                current["expected_table_field"] = field_options.table_field
+                current["expected_row_ids"] = list(field_options.row_ids or [])
+                current["last_options"] = [option.model_dump() for option in field_options.options]
                 await self.repository.save_pending_draft(response.conversation_id, current)
         elif preview:
             current = await self.repository.get_pending_draft(response.conversation_id) or {}
@@ -1138,6 +1459,46 @@ class ChatService:
                 "confirmation_id": confirmation.confirmation_id if confirmation else None,
                 "version": version,
             })
+
+    async def _save_resolution_pending_draft(
+        self,
+        conversation_id: str,
+        doctype: str,
+        data: dict[str, Any],
+        message_id: str,
+        resolution: ChildRowsResolutionPart,
+    ) -> None:
+        pending_entities: list[dict[str, Any]] = []
+        for row in resolution.rows:
+            target = self._link_target_for_field(row.link_field, doctype)
+            pending_entities.append(
+                {
+                    "table_field": resolution.table_field,
+                    "row_id": row.row_id,
+                    "fieldname": row.link_field,
+                    "target_doctype": target,
+                    "query": row.query,
+                    "matches": [match.model_dump() for match in row.matches],
+                    "status": row.status,
+                }
+            )
+        expected = pending_entities[0] if len(pending_entities) == 1 else None
+        if not expected:
+            parent_entities = [entity for entity in pending_entities if entity.get("table_field") == "__parent__"]
+            expected = parent_entities[0] if len(parent_entities) == 1 else None
+        await self.repository.save_pending_draft(conversation_id, {
+            "doctype": doctype,
+            "operation": "create",
+            "data": data,
+            "message_id": message_id,
+            "status": "resolving_entities",
+            "pending_entities": pending_entities,
+            "expected_field": expected.get("fieldname") if expected else None,
+            "expected_entity_type": expected.get("target_doctype") if expected else None,
+            "expected_table_field": expected.get("table_field") if expected else None,
+            "expected_row_ids": [expected.get("row_id")] if expected and expected.get("row_id") else [],
+            "last_options": (expected.get("matches") if expected else []),
+        })
 
     async def _resolve_report_followup(self, request: ChatMessageRequest, conversation_id: str) -> dict[str, Any] | None:
         action = request.structured_action or {}

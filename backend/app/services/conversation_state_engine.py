@@ -8,6 +8,7 @@ from typing import Any
 from app.schemas.chat import AssistantChatResponse, ChatMessageRequest
 from app.schemas.conversation_state import ConversationContext, ConversationState, StateDecision
 from app.utils.datetime import utc_now
+from app.utils.workflow_intent_parser import parse_workflow_intent
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ class ConversationStateEngine:
             return StateDecision(route="structured_selection", normalized_message=normalized, active_state=active, reason="structured entity selection")
         if action.get("action") in {"select_draft_field_value", "set_child_row_field", "set_field_for_rows"}:
             return StateDecision(route="structured_draft_field", normalized_message=normalized, active_state=active, reason="structured draft field selection")
+        if looks_like_workflow_request(normalized):
+            return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason="workflow request")
         if has_pending_draft and not looks_like_new_draft(normalized):
             return StateDecision(route="draft_continue", normalized_message=normalized, active_state=active, reason="active draft session")
         if has_report and looks_like_report_followup(normalized):
@@ -73,6 +76,9 @@ class ConversationStateEngine:
             "draft_session_id": response.conversation_id if new_state.name.startswith("DRAFT") or new_state in {ConversationState.ENTITY_SELECTION, ConversationState.WAITING_USER_SELECTION, ConversationState.WAITING_USER_CONFIRMATION} else context.draft_session_id,
             "report_session_id": _response_report_id(response) or context.report_session_id,
             "active_doctype": _response_doctype(response) or context.active_doctype,
+            "expected_field": _response_expected_field(response),
+            "expected_entity_type": _response_expected_entity_type(response),
+            "pending_entities": _response_pending_entities(response),
             "confirmation_token": _response_confirmation_id(response),
             "preview_version": _response_preview_version(response) or context.preview_version,
             "last_ai_response": response.content,
@@ -81,6 +87,9 @@ class ConversationStateEngine:
         if new_state in {ConversationState.DRAFT_CANCELLED, ConversationState.DRAFT_COMPLETED, ConversationState.IDLE}:
             updated.draft_session_id = None
             updated.confirmation_token = None
+            updated.expected_field = None
+            updated.expected_entity_type = None
+            updated.pending_entities = []
         await repository.save_conversation_context(response.conversation_id, updated)
         response.current_state = updated.active_state.value
         response.response_type = response_type_from_state(response, updated.active_state)
@@ -117,6 +126,10 @@ def looks_like_report_followup(message: str) -> bool:
     return any(phrase in text for phrase in ("this result", "same filters", "show detail", "row ", "sort by", "export", "summarize", "chart", "group by", "drill down", "pin"))
 
 
+def looks_like_workflow_request(message: str) -> bool:
+    return parse_workflow_intent(message) is not None
+
+
 def state_from_response(response: AssistantChatResponse) -> ConversationState:
     if response.intent == "child_rows_resolution_required":
         return ConversationState.DRAFT_ENTITY_RESOLUTION
@@ -138,6 +151,10 @@ def state_from_response(response: AssistantChatResponse) -> ConversationState:
         return ConversationState.REPORT_READY
     if response.intent == "get_record":
         return ConversationState.REPORT_DETAIL
+    if response.intent == "workflow_list_pending":
+        return ConversationState.WORKFLOW_READY
+    if response.intent in {"workflow_get_detail", "workflow_apply_action"}:
+        return ConversationState.WORKFLOW_DETAIL
     if response.intent.endswith("failed"):
         return ConversationState.ERROR
     return ConversationState.IDLE
@@ -156,6 +173,10 @@ def response_type_from_state(response: AssistantChatResponse, state: Conversatio
         return "report_result"
     if state == ConversationState.REPORT_DETAIL:
         return "document_detail"
+    if state == ConversationState.WORKFLOW_READY:
+        return "workflow_list_pending"
+    if state == ConversationState.WORKFLOW_DETAIL:
+        return "workflow_detail"
     if state == ConversationState.ERROR:
         return "error"
     return response.intent
@@ -167,6 +188,8 @@ def next_expected_action(state: ConversationState) -> str | None:
         ConversationState.DRAFT_INFORMATION_REQUIRED: "user_input",
         ConversationState.DRAFT_PREVIEW: "confirmation",
         ConversationState.REPORT_READY: "follow_up",
+        ConversationState.WORKFLOW_READY: "workflow_selection",
+        ConversationState.WORKFLOW_DETAIL: "workflow_action",
         ConversationState.WAITING_USER_CONFIRMATION: "confirmation",
     }.get(state)
 
@@ -177,6 +200,8 @@ def available_actions(state: ConversationState) -> list[str]:
         ConversationState.DRAFT_INFORMATION_REQUIRED: ["provide_value", "cancel"],
         ConversationState.DRAFT_PREVIEW: ["inspect", "edit", "confirm", "cancel"],
         ConversationState.REPORT_READY: ["chart", "export", "detail", "pin", "refine"],
+        ConversationState.WORKFLOW_READY: ["open", "refresh"],
+        ConversationState.WORKFLOW_DETAIL: ["approve", "reject", "send_back", "refresh"],
     }.get(state, [])
 
 
@@ -218,6 +243,48 @@ def _response_doctype(response: AssistantChatResponse) -> str | None:
         if getattr(part, "doctype", None):
             return getattr(part, "doctype")
     return None
+
+
+def _response_expected_field(response: AssistantChatResponse) -> str | None:
+    for part in response.parts:
+        if getattr(part, "type", "") == "draft_field_options":
+            return getattr(part, "fieldname", None)
+        if getattr(part, "type", "") == "child_rows_resolution_required":
+            rows = list(getattr(part, "rows", []) or [])
+            if len(rows) == 1:
+                return getattr(rows[0], "link_field", None)
+    return None
+
+
+def _response_expected_entity_type(response: AssistantChatResponse) -> str | None:
+    fieldname = _response_expected_field(response)
+    return {
+        "supplier": "Supplier",
+        "customer": "Customer",
+        "party_name": "Customer",
+        "item_code": "Item",
+        "warehouse": "Warehouse",
+        "company": "Company",
+        "currency": "Currency",
+    }.get(str(fieldname or ""))
+
+
+def _response_pending_entities(response: AssistantChatResponse) -> list[dict[str, Any]]:
+    for part in response.parts:
+        if getattr(part, "type", "") != "child_rows_resolution_required":
+            continue
+        table_field = getattr(part, "table_field", None)
+        output = []
+        for row in getattr(part, "rows", []) or []:
+            output.append({
+                "table_field": table_field,
+                "row_id": getattr(row, "row_id", None),
+                "fieldname": getattr(row, "link_field", None),
+                "query": getattr(row, "query", None),
+                "status": getattr(row, "status", None),
+            })
+        return output
+    return []
 
 
 conversation_state_engine = ConversationStateEngine()

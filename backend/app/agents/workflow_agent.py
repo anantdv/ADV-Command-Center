@@ -33,7 +33,10 @@ class WorkflowAgent:
                 return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="error", output_summary=exc.message)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=0, filters={"doctype": intent.doctype} if intent.doctype else {}), PermissionMeta(allowed=False, reason=exc.message))
             rows = [doc.model_dump(mode="json") | {"actions": ", ".join(action.action for action in doc.available_actions)} for doc in result.documents]
             summary = "You do not have any documents pending for approval." if not rows else f"I found {len(rows)} document{'s' if len(rows) != 1 else ''} pending for your approval."
-            return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="success", output_summary=f"{len(rows)} documents"), build_table_part("Pending Approvals", rows)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=len(rows), filters=result.filters))
+            parts = [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="success", output_summary=f"{len(rows)} documents")]
+            if rows:
+                parts.append(build_table_part("Pending Approvals", rows))
+            return self._response(conversation_id, intent.intent, summary, parts, SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=len(rows), filters=result.filters))
 
         if intent.intent == "workflow_get_detail":
             if not intent.doctype or not intent.record_name:
@@ -61,7 +64,17 @@ class WorkflowAgent:
     @staticmethod
     def _response(conversation_id: str, intent: str, summary: str, parts: list, source: SourceMeta | None = None, permission: PermissionMeta | None = None) -> AssistantChatResponse:
         message_id = new_id("msg")
-        return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent=intent, parts=parts, source=source, permission=permission or PermissionMeta(allowed=True), suggested_actions=[SuggestedAction(label="Refresh", action_type="refresh_workflow"), SuggestedAction(label="Open in ERPNext", action_type="open_erpnext")], id=message_id, content=summary, created_at=utc_now())
+        count = source.record_count if source else None
+        actions = [SuggestedAction(label="Refresh", action_type="refresh_workflow")]
+        if intent == "workflow_list_pending" and not count:
+            actions.extend([
+                SuggestedAction(label="Open ERPNext Workflow", action_type="open_erpnext_workflow"),
+                SuggestedAction(label="Show Purchase Orders", action_type="prompt", payload={"prompt": "show purchase orders"}),
+                SuggestedAction(label="Show Purchase Invoices", action_type="prompt", payload={"prompt": "show purchase invoices"}),
+            ])
+        else:
+            actions.append(SuggestedAction(label="Open in ERPNext", action_type="open_erpnext"))
+        return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent=intent, parts=parts, source=source, permission=permission or PermissionMeta(allowed=True), suggested_actions=actions, id=message_id, content=summary, created_at=utc_now())
 
     @classmethod
     def _needs_doc(cls, conversation_id: str) -> AssistantChatResponse:
