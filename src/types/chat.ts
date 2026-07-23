@@ -183,6 +183,10 @@ export interface ChatMessage {
   createdAt: string
   parts?: ChatMessagePart[]
   intent?: string | null
+  responseType?: string | null
+  currentState?: string | null
+  nextExpectedAction?: string | null
+  availableActions?: string[]
   source?: SourceMeta | null
   permission?: ChatPermissionMeta | null
   suggestedActions?: SuggestedAction[]
@@ -195,6 +199,10 @@ export interface AssistantChatResponse {
   message_id: string
   role: 'assistant'
   intent: string
+  response_type?: string | null
+  current_state?: string | null
+  next_expected_action?: string | null
+  available_actions?: string[]
   parts: ChatMessagePart[]
   source?: SourceMeta | null
   permission?: ChatPermissionMeta | null

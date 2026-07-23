@@ -44,6 +44,7 @@ from app.schemas.crud import CancelCrudResponse, ConfirmCrudRequest, ConfirmCrud
 from app.schemas.dashboard import DashboardWidgetSource, PinChatResultRequest, PinChatResultResponse
 from app.services.dashboard_service import DashboardService, dashboard_service
 from app.services.conversation_repository import InMemoryConversationRepository
+from app.services.conversation_state_engine import ConversationStateEngine, conversation_state_engine
 from app.services.suggestion_service import SuggestionService, suggestion_service
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
@@ -78,6 +79,7 @@ class ChatService:
         workflow_agent: WorkflowAgent | None = None,
         report_composer_agent: ReportComposerAgent | None = None,
         suggestions: SuggestionService | None = None,
+        state_engine: ConversationStateEngine | None = None,
     ) -> None:
         self.router = router or RouterAgent()
         self.safety = safety or SafetyAgent()
@@ -93,6 +95,7 @@ class ChatService:
         self.report_composer_agent = report_composer_agent or ReportComposerAgent()
         self.suggestions = suggestions or suggestion_service
         self.suggestion_context = SuggestionContextBuilder()
+        self.state_engine = state_engine or conversation_state_engine
 
     async def list_conversations(self) -> list[Conversation]:
         return await self.repository.list_conversations()
@@ -117,6 +120,12 @@ class ChatService:
             request.conversation_id,
             self._conversation_title(request.message),
         )
+        state_context = await self.state_engine.load_context(self.repository, conversation.id)
+        pending_snapshot = await self.repository.get_pending_draft(conversation.id)
+        report_snapshot = await self.repository.get_latest_result_context(conversation.id)
+        state_decision = self.state_engine.decide(request, state_context, bool(pending_snapshot), bool(report_snapshot))
+        if state_decision.normalized_message != request.message:
+            request = request.model_copy(update={"message": state_decision.normalized_message})
         await self.repository.save_message(
             ChatMessage(
                 id=new_id("msg"),
@@ -127,31 +136,33 @@ class ChatService:
             )
         )
 
-        selection_response = await self._handle_entity_selection_action(request, conversation.id, cookies, user)
+        selection_response = await self._handle_entity_selection_action(request, conversation.id, cookies, user) if state_decision.route == "structured_selection" else None
         if selection_response:
             intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
             response = selection_response
             route = "entity_selection"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
             await self._remember_pending_draft(response)
+            await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
             await self._audit(user, request.message, intent, response, safety)
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        draft_field_response = await self._handle_draft_field_action(request, conversation.id, cookies, user)
+        draft_field_response = await self._handle_draft_field_action(request, conversation.id, cookies, user) if state_decision.route == "structured_draft_field" else None
         if draft_field_response:
             intent = IntentResult(intent="crud_create", conversation_id=conversation.id, raw_prompt=request.message, confidence=1)
             response = draft_field_response
             route = "draft_field_selection"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
             await self._remember_pending_draft(response)
+            await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
             await self._audit(user, request.message, intent, response, safety)
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": "generated_action", "resolved_intent": response.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        fresh_draft_intent = self.router._planned_create_intent(request.message)
+        fresh_draft_intent = self.router._planned_create_intent(request.message) if state_decision.route == "new_draft" else None
         if fresh_draft_intent and await self.repository.get_pending_draft(conversation.id):
             await self.repository.supersede_pending_draft(conversation.id, new_id("draft"))
             await self.repository.clear_pending_draft(conversation.id)
@@ -161,12 +172,13 @@ class ChatService:
             route = "document_planner_new_session"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
             await self._remember_pending_draft(response)
+            await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
             await self._audit(user, request.message, intent, response, safety)
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": request.source or "typed", "resolved_intent": intent.intent, "execution_route": route, "new_session_created": True, "prior_session_superseded": True, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user)
+        pending_response = await self._maybe_continue_pending_draft(request, conversation.id, cookies, user) if state_decision.route == "draft_continue" else None
         if pending_response:
             audit_intent = "crud_create" if pending_response.intent in {"child_rows_resolution_required", "draft_cancelled", "draft_field_options", "draft_preview_updated", "draft_edit_failed", "show_draft_fields"} else pending_response.intent
             intent = IntentResult(
@@ -179,12 +191,15 @@ class ChatService:
             route = "document_planner_continue"
             response.extraction = ExtractionMeta(method="rules", confidence=1, erp_data_sent=False)
             await self._remember_pending_draft(response)
+            await self.state_engine.transition(self.repository, state_context, response, route=route)
             await self._persist_response(response)
             await self._audit(user, request.message, intent, response, safety)
             logger.info("chat_command_executed", extra={"conversation_id": conversation.id, "command_id": response.message_id, "source": request.source or "typed", "resolved_intent": intent.intent, "execution_route": route, "response_type": response.intent, "duration_ms": int((perf_counter() - started) * 1000), "error": None})
             return response
 
-        followup = await self._resolve_report_followup(request, conversation.id)
+        structured_action = request.structured_action or {}
+        structured_report_action = structured_action.get("action") == "transform_report" or structured_action.get("action_type") == "transform_report"
+        followup = await self._resolve_report_followup(request, conversation.id) if state_decision.route == "report_followup" or structured_report_action else None
         if followup:
             route = "report_followup"
             intent = IntentResult(
@@ -251,6 +266,7 @@ class ChatService:
         await self._remember_report_context(response, intent, request)
         await self._remember_pending_draft(response)
         await self._attach_suggestions(response, request.message, intent, cookies, user, user_roles or [])
+        await self.state_engine.transition(self.repository, state_context, response, route=route)
         await self._persist_response(response)
         await self._audit(user, request.message, intent, response, safety)
         logger.info(
@@ -376,7 +392,7 @@ class ChatService:
         warehouse_requirement = self._warehouse_requirement(collected) if doctype == "Purchase Order" else []
         if warehouse_requirement and self._warehouse_options_requested(text):
             return await self._draft_warehouse_options_response(conversation_id, doctype, collected, cookies, request.message)
-        if self._is_draft_inspection_request(request.message):
+        if self._is_draft_inspection_request(request.message) and not self._parse_row_updates(request.message):
             return await self._draft_inspection_response(conversation_id, doctype, collected, pending, request.message, cookies)
         if warehouse_requirement:
             applied = await self._try_apply_warehouse_from_text(collected, request.message, cookies)
@@ -805,18 +821,24 @@ class ChatService:
         segments = [segment.strip(" ,.;") for segment in re.split(r"\s+(?:and|&)\s+|[,;]+", body) if segment.strip(" ,.;")]
         updates: list[dict[str, Any]] = []
         for segment in segments:
-            match = re.search(r"(.+?)\s+(?:rate|price|cost|qty|quantity|uom)?\s*(?:to|as|=|at)?\s*([A-Za-z]*\s*[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[A-Za-z][A-Za-z0-9 -]{0,20})$", segment, re.I)
-            if not match:
-                continue
-            query = re.sub(r"\b(rate|price|cost|qty|quantity|uom|for|item|row)\b", " ", match.group(1), flags=re.I)
-            query = " ".join(query.strip().split())
-            raw_value = match.group(2).strip()
             if field in {"rate", "qty"}:
-                number_match = re.search(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?", raw_value)
-                if not number_match or not query:
+                number_matches = list(re.finditer(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?", segment))
+                if not number_matches:
+                    continue
+                number_match = number_matches[-1]
+                raw_query = segment[: number_match.start()]
+                query = re.sub(r"\b(update|set|change|correct|edit|show|display|to|as|at|rate|price|cost|qty|quantity|uom|for|item|row)\b", " ", raw_query, flags=re.I)
+                query = " ".join(query.strip().split())
+                if not query:
                     continue
                 value: Any = float(number_match.group(0).replace(",", ""))
             else:
+                match = re.search(r"(.+?)\s+(?:uom)?\s*(?:to|as|=)?\s*([A-Za-z][A-Za-z0-9 -]{0,20})$", segment, re.I)
+                if not match:
+                    continue
+                query = re.sub(r"\b(update|set|change|correct|edit|show|display|uom|for|item|row)\b", " ", match.group(1), flags=re.I)
+                query = " ".join(query.strip().split())
+                raw_value = match.group(2).strip()
                 value = raw_value
             updates.append({"field": field, "query": query, "value": value, "source_text": segment})
         return updates
@@ -1385,6 +1407,10 @@ class ChatService:
                 created_at=response.created_at,
                 parts=[part.model_dump(mode="json") for part in response.parts],
                 intent=response.intent,
+                response_type=response.response_type,
+                current_state=response.current_state,
+                next_expected_action=response.next_expected_action,
+                available_actions=response.available_actions,
                 source=response.source,
                 permission=response.permission,
                 suggested_actions=response.suggested_actions,

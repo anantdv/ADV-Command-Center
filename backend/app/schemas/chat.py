@@ -277,6 +277,10 @@ class AssistantChatResponse(BaseModel):
     message_id: str
     role: Literal["assistant"] = "assistant"
     intent: str
+    response_type: str | None = None
+    current_state: str | None = None
+    next_expected_action: str | None = None
+    available_actions: list[str] = Field(default_factory=list)
     parts: list[MessagePart]
     source: SourceMeta | None = None
     permission: PermissionMeta | None = None
@@ -297,6 +301,10 @@ class ChatMessage(CamelModel):
     created_at: datetime
     parts: list[dict[str, Any]] = Field(default_factory=list)
     intent: str | None = None
+    response_type: str | None = None
+    current_state: str | None = None
+    next_expected_action: str | None = None
+    available_actions: list[str] = Field(default_factory=list)
     source: SourceMeta | None = None
     permission: PermissionMeta | None = None
     suggested_actions: list[SuggestedAction] = Field(default_factory=list)

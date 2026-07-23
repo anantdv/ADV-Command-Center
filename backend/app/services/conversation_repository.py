@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.schemas.chat import ChatMessage, Conversation
+from app.schemas.conversation_state import ConversationContext, ConversationState
 from app.utils.datetime import utc_now
 from app.utils.ids import new_id
 
@@ -21,20 +22,25 @@ class InMemoryConversationRepository:
         self.tool_calls: list[dict[str, Any]] = []
         self.result_contexts: dict[str, list[dict[str, Any]]] = {}
         self.pending_drafts: dict[str, dict[str, Any]] = {}
+        self.conversation_contexts: dict[str, ConversationContext] = {
+            initial.id: ConversationContext(conversation_id=initial.id, active_state=ConversationState.IDLE)
+        }
 
     async def list_conversations(self) -> list[Conversation]:
         return sorted(self.conversations.values(), key=lambda item: item.updated_at, reverse=True)
 
     async def create_conversation(self, title: str, conversation_id: str | None = None) -> Conversation:
         now = utc_now()
+        new_conversation_id = conversation_id or new_id("conv")
         conversation = Conversation(
-            id=conversation_id or new_id("conv"),
+            id=new_conversation_id,
             title=title,
             created_at=now,
             updated_at=now,
         )
         self.conversations[conversation.id] = conversation
         self.messages.setdefault(conversation.id, [])
+        self.conversation_contexts[conversation.id] = ConversationContext(conversation_id=conversation.id, active_state=ConversationState.IDLE)
         return conversation
 
     async def get_or_create(self, conversation_id: str | None, title: str) -> Conversation:
@@ -90,6 +96,9 @@ class InMemoryConversationRepository:
 
     async def clear_pending_draft(self, conversation_id: str) -> None:
         self.pending_drafts.pop(conversation_id, None)
+        context = self.conversation_contexts.get(conversation_id)
+        if context:
+            self.conversation_contexts[conversation_id] = context.model_copy(update={"active_state": ConversationState.IDLE, "draft_session_id": None, "confirmation_token": None})
 
     async def supersede_pending_draft(self, conversation_id: str, new_session_id: str) -> None:
         draft = self.pending_drafts.get(conversation_id)
@@ -97,3 +106,9 @@ class InMemoryConversationRepository:
             draft["status"] = "superseded"
             draft["superseded_by"] = new_session_id
             self.pending_drafts[conversation_id] = draft
+
+    async def get_conversation_context(self, conversation_id: str) -> ConversationContext | None:
+        return self.conversation_contexts.get(conversation_id)
+
+    async def save_conversation_context(self, conversation_id: str, context: ConversationContext) -> None:
+        self.conversation_contexts[conversation_id] = context
