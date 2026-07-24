@@ -11,6 +11,7 @@ def test_pending_approvals_list_returns_mock_documents():
     data = response.json()["data"]
     assert data["total"] >= 1
     assert data["documents"][0]["availableActions"]
+    assert data["doctypeCounts"]
 
 
 def test_pending_approvals_can_filter_doctype():

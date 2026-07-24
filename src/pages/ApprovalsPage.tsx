@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, ExternalLink, RefreshCw, RotateCcw, XCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, RefreshCw, RotateCcw, XCircle } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
 import { EmptyState } from '../components/common/EmptyState'
 import { ErrorState } from '../components/common/ErrorState'
@@ -91,7 +91,7 @@ export function ApprovalsPage() {
   return <div className="space-y-5">
     <PageHeader eyebrow="ERPNext Workflow Inbox" title="Approvals" description="Review documents waiting for your ERPNext workflow action. Actions are executed by ERPNext workflow only." actions={<button className="btn-secondary" onClick={() => void load()}><RefreshCw size={15}/>Refresh</button>} />
     {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>}
-    {!documents.length ? <EmptyState title="No pending approvals." description="There are no ERPNext Workflow Action documents currently actionable for your session." action={<div className="flex flex-wrap justify-center gap-2"><button className="btn-secondary" onClick={() => void load()}>Refresh</button><a className="btn-secondary" href="/app/workflow-action" target="_blank" rel="noreferrer">Open ERPNext Workflow</a><a className="btn-secondary" href="/modules/buying/doctype/Purchase%20Order">Show Purchase Orders</a><a className="btn-secondary" href="/modules/accounts/doctype/Purchase%20Invoice">Show Purchase Invoices</a></div>} /> : <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+    {!documents.length ? <EmptyState title="No pending approvals." description="There are no ERPNext Workflow Action documents currently actionable for your session." action={<div className="flex flex-wrap justify-center gap-2"><button className="btn-secondary" onClick={() => void load()}>Refresh</button><a className="btn-secondary" href="/modules/buying/doctype/Purchase%20Order">Show Purchase Orders</a><a className="btn-secondary" href="/modules/accounts/doctype/Purchase%20Invoice">Show Purchase Invoices</a></div>} /> : <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
       <section className="card overflow-hidden">
         <div className="border-b p-4">
           <div className="flex items-center gap-2 text-sm font-bold"><ClipboardCheck size={17} className="text-purple-600"/>Pending approval inbox</div>
@@ -134,7 +134,7 @@ function ApprovalDetail({ detail, actioning, onApply }: { detail: WorkflowDocume
   return <div className="space-y-5">
     <div className="flex flex-col gap-3 border-b pb-5 md:flex-row md:items-start md:justify-between">
       <div><p className="text-xs font-bold uppercase tracking-wider text-purple-500">{detail.doctype}</p><h2 className="mt-1 text-2xl font-bold text-slate-900">{detail.title || detail.name}</h2><p className="mt-1 text-sm text-slate-500">{detail.workflowState || detail.workflow_state || detail.status || 'Pending workflow action'}</p></div>
-      <a className="btn-secondary" href={`/app/${detail.doctype.toLowerCase().replaceAll(' ', '-')}/${detail.name}`} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Open in ERPNext</a>
+      <button className="btn-secondary" type="button" onClick={()=>window.scrollTo({top:0,behavior:'smooth'})}>Return to Approval Queue</button>
     </div>
     <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-4">
       <p className="text-xs font-bold uppercase tracking-wider text-indigo-500">AI summary</p>
@@ -190,7 +190,6 @@ function StaleQueueError({ message, onRefresh }: { message: string; onRefresh: (
       <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">{message}</p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         <button className="btn-primary" onClick={onRefresh}><RefreshCw size={14}/>Refresh queue</button>
-        <a className="btn-secondary" href="/app/workflow-action" target="_blank" rel="noreferrer">Open ERPNext Workflow</a>
       </div>
     </div>
   </div>

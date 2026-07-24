@@ -22,7 +22,8 @@ class SuggestionService:
             return SuggestionResponse(suggestions=[])
         base = get_suggestions_for_context(context)
         filtered = await self.permission_filter.filter(base, context, user_roles, cookies)
-        limited = sorted(filtered, key=_rank)[: settings.max_dynamic_suggestions]
+        ranked = sorted(filtered, key=_rank)
+        limited = ranked if context.result_type == "workflow_pending_list" else ranked[: settings.max_dynamic_suggestions]
         await log_audit_event(AuditEvent(
             user=user,
             conversation_id=context.conversation_id,
@@ -47,6 +48,10 @@ suggestion_service = SuggestionService()
 
 
 def _rank(item: SuggestedPrompt) -> tuple[int, int, str]:
+    if item.action_type == "filter_pending_approvals":
+        return (1 if item.disabled else 0, -int(item.payload.get("count") or 0), item.label)
+    if item.action_type == "refresh_pending_approvals":
+        return (1 if item.disabled else 0, -10_000, item.label)
     label_rank = {
         "Group by Customer": 0,
         "Show Aging": 1,

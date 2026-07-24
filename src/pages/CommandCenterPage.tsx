@@ -27,6 +27,7 @@ import type { SuggestedPrompt } from '../types/suggestions'
 import type { DocumentMappingPreview as DocumentPreview } from '../types/documentIntake'
 import type { WorkflowActionPreviewResponse } from '../types/workflow'
 import { WorkflowActionConfirmDialog } from '../components/workflow/WorkflowActionConfirmDialog'
+import { capabilities, isExternalErpNextAction } from '../config/capabilities'
 
 type CommandSource = 'typed' | 'voice' | 'generated_action' | 'suggested_prompt' | 'table_row' | 'retry' | 'overview'
 type ActiveReportContext = {
@@ -130,6 +131,7 @@ export function CommandCenterPage() {
   },[autoRun,promptParam])
   const runAction=(action:SuggestedAction,source?:SourceMeta|null)=>{
     if(action.disabled)return
+    if(isExternalErpNextAction(action.action_type)&&!capabilities.erpnextExternalLinksEnabled)return
     if(action.action_type==='download_file'&&action.reason){window.location.assign(action.reason);return}
     if(action.action_type==='open_library'){navigate('/library');return}
     if(action.action_type==='open_module'){
@@ -166,6 +168,10 @@ export function CommandCenterPage() {
       executeCommand({text:suggestion.prompt||suggestion.label,source:'generated_action',structuredAction:payload,requestedOutput:String(payload.operation||'')})
       return
     }
+    if(suggestion.type==='action'&&['filter_pending_approvals','refresh_pending_approvals'].includes(actionType||'')){
+      executeCommand({text:suggestion.prompt||suggestion.label,source:'generated_action',structuredAction:{...payload,action:actionType}})
+      return
+    }
     if(suggestion.type==='prompt'&&suggestion.prompt){executeCommand({text:suggestion.prompt,source:'suggested_prompt'});return}
     if(suggestion.type==='export'){
       const format=String(payload.format||'xlsx')
@@ -183,6 +189,7 @@ export function CommandCenterPage() {
       return
     }
     if(suggestion.type==='navigation'){
+      if(isExternalErpNextAction(actionType)&&!capabilities.erpnextExternalLinksEnabled)return
       const route=payload.route
       if(typeof route==='string'){navigate(route);return}
       if(actionType==='open_library'){navigate('/library');return}
@@ -238,7 +245,7 @@ export function CommandCenterPage() {
     <section className="relative flex min-w-0 flex-1 flex-col bg-[#f8f9fc]">
       <div className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6"><div className="flex items-center gap-2.5"><TinniAvatar className="size-8"/><div><p className="text-sm font-bold text-slate-800">{newChat?'New command':selected?.title||'Tinni'}</p><p className="text-[10px] text-slate-400">Tinni · Live ERPNext · Controlled draft actions {moduleContext?`· ${moduleContext} context enabled`:''}</p></div></div><div className="flex items-center gap-2">{moduleContext&&<span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">{moduleContext} context</span>}<button onClick={()=>setShowIntake(true)} className="btn-secondary h-9 px-3 text-xs"><FileUp size={14}/>OCR intake</button><button aria-label="Pin conversation" className="hidden rounded-lg border p-2 text-slate-400 hover:bg-slate-50 sm:block"><Pin size={15}/></button></div></div>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {!showConversation?<EmptyCommandCenter onPrompt={send}/>:<div className="mx-auto max-w-4xl space-y-7 px-4 pb-40 pt-7 sm:px-8">
+        {!showConversation?<EmptyCommandCenter onPrompt={send}/>:<div className="w-full max-w-none space-y-7 px-3 pb-40 pt-5 sm:px-5 xl:px-7">
           {messages.isLoading&&<LoadingState cards={2}/>} 
           {messages.isError&&<ErrorState retry={()=>void messages.refetch()}/>} 
           {history.map(message=><HistoryMessage key={message.id} message={message} onAction={runAction} onSuggestion={runSuggestion} onRowClick={runRowClick}/>)}
@@ -249,7 +256,7 @@ export function CommandCenterPage() {
           <div ref={endRef}/>
         </div>}
       </div>
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-4 pb-4 pt-10 sm:px-8"><div className="mx-auto max-w-4xl"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''} onAttachmentMessage={message=>{setNewChat(true);setOptimisticUser(message)}} onAttachmentError={message=>setTransientResponse(localAssistantError(message))} onOcrProcessed={preview=>{setIntakePreview(preview);setShowIntake(true);setTransientResponse(localAssistantOcrPreview(preview))}}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#f8f9fc] via-[#f8f9fc] to-transparent px-3 pb-4 pt-10 sm:px-5 xl:px-7"><div className="w-full max-w-none"><CommandInput onSend={send} initialValue={!autoRun?promptParam:''} onAttachmentMessage={message=>{setNewChat(true);setOptimisticUser(message)}} onAttachmentError={message=>setTransientResponse(localAssistantError(message))} onOcrProcessed={preview=>{setIntakePreview(preview);setShowIntake(true);setTransientResponse(localAssistantOcrPreview(preview))}}/><p className="mt-2 text-center text-[10px] text-slate-400">ERPNext permissions always apply · Safe writes require an explicit confirmation{moduleContext?` · ${moduleContext} context enabled`:''}</p></div></div>
     </section>
     {showIntake&&<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-slate-900">OCR Document Intake</h2><p className="text-xs text-slate-400">Upload supplier invoices, customer POs, quotations, or delivery documents.</p></div><button className="rounded-lg p-2 hover:bg-slate-100" onClick={()=>{setShowIntake(false);setIntakePreview(null)}}><X size={18}/></button></div>{intakePreview?<DocumentMappingPreview preview={intakePreview} busy={confirmIntake.isPending} onConfirm={()=>confirmIntake.mutate(intakePreview.intake_id)} onCancel={()=>setIntakePreview(null)}/>:<DocumentUploadPanel onProcessed={setIntakePreview}/>}</div></div>}
     <ChangeChartTypeDialog open={uiAction?.type==='chart'} currentType={String(uiAction?.payload.current_chart_type||uiAction?.payload.currentChartType||uiAction?.payload.chart_type||'')} onApply={()=>setUiAction(null)} onClose={()=>setUiAction(null)}/>

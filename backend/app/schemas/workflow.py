@@ -57,9 +57,15 @@ class PendingWorkflowDocument(CamelModel):
     available_actions: list[WorkflowAction] = Field(default_factory=list)
 
 
+class PendingApprovalDoctypeCount(CamelModel):
+    doctype: str
+    count: int
+
+
 class PendingApprovalsResponse(CamelModel):
     documents: list[PendingWorkflowDocument]
     total: int
+    doctype_counts: list[PendingApprovalDoctypeCount] = Field(default_factory=list)
     filters: dict[str, Any] = Field(default_factory=dict)
 
 

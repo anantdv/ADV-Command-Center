@@ -7,7 +7,7 @@ from app.core.audit import AuditEvent, log_audit_event
 from app.core.exceptions import AppError, PermissionDenied
 from app.frappe.client import FrappeClient
 from app.frappe.paths import APPLY_WORKFLOW_ACTION, GET_AVAILABLE_WORKFLOW_ACTIONS, GET_PENDING_WORKFLOW_DOCUMENTS, GET_WORKFLOW_DOCUMENT_DETAIL, WORKFLOW_DEBUG
-from app.schemas.workflow import ApplyWorkflowActionRequest, ApplyWorkflowActionResponse, PendingApprovalsResponse, PendingWorkflowDocument, WorkflowAction, WorkflowActionPreviewRequest, WorkflowActionPreviewResponse, WorkflowDocumentDetail
+from app.schemas.workflow import ApplyWorkflowActionRequest, ApplyWorkflowActionResponse, PendingApprovalDoctypeCount, PendingApprovalsResponse, PendingWorkflowDocument, WorkflowAction, WorkflowActionPreviewRequest, WorkflowActionPreviewResponse, WorkflowDocumentDetail
 from app.utils.confirmation_store import confirmation_store
 
 
@@ -27,11 +27,12 @@ class WorkflowService:
         if settings.use_mock_data:
             docs = [doc for doc in _mock_pending() if not doctype or doc.doctype == doctype][:limit]
             await self._audit("workflow_pending_approvals_viewed", user, doctype=doctype, allowed=True, output=f"{len(docs)} documents")
-            return PendingApprovalsResponse(documents=docs, total=len(docs), filters={"doctype": doctype} if doctype else {})
+            return PendingApprovalsResponse(documents=docs, total=len(docs), doctype_counts=_doctype_counts(docs), filters={"doctype": doctype} if doctype else {})
         data = self._unwrap(await self.client.get(GET_PENDING_WORKFLOW_DOCUMENTS, {"doctype": doctype, "limit": limit}, cookies))
         docs = [PendingWorkflowDocument.model_validate(item) for item in (data.get("documents") if isinstance(data, dict) else data) or []]
+        counts = [PendingApprovalDoctypeCount.model_validate(item) for item in (data.get("doctype_counts") if isinstance(data, dict) else None) or _doctype_counts(docs)]
         await self._audit("workflow_pending_approvals_viewed", user, doctype=doctype, allowed=True, output=f"{len(docs)} documents")
-        return PendingApprovalsResponse(documents=docs, total=int((data or {}).get("total", len(docs))) if isinstance(data, dict) else len(docs), filters=(data or {}).get("filters", {"doctype": doctype} if doctype else {}) if isinstance(data, dict) else {})
+        return PendingApprovalsResponse(documents=docs, total=int((data or {}).get("total", len(docs))) if isinstance(data, dict) else len(docs), doctype_counts=counts, filters=(data or {}).get("filters", {"doctype": doctype} if doctype else {}) if isinstance(data, dict) else {})
 
     async def get_document_detail(self, doctype: str, name: str, cookies: dict | None = None, user: str = "unknown") -> WorkflowDocumentDetail:
         if settings.use_mock_data:
@@ -173,3 +174,13 @@ workflow_service = WorkflowService()
 
 def _normalize_action(value: str) -> str:
     return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _doctype_counts(docs: list[PendingWorkflowDocument]) -> list[PendingApprovalDoctypeCount]:
+    counts: dict[str, int] = {}
+    for doc in docs:
+        counts[doc.doctype] = counts.get(doc.doctype, 0) + 1
+    return [
+        PendingApprovalDoctypeCount(doctype=doctype, count=count)
+        for doctype, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    ]

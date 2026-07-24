@@ -41,6 +41,8 @@ class SuggestionContextBuilder:
             extra["table_config"] = table.config
             if table.config.get("report_id"):
                 extra["report_id"] = table.config.get("report_id")
+            if table.config.get("doctype_counts"):
+                extra["doctype_counts"] = table.config.get("doctype_counts")
         if chart and chart.config:
             extra["chart_config"] = chart.config
             if chart.config.get("report_id"):

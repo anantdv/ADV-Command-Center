@@ -18,6 +18,7 @@ import { ChildRowsResolutionCard } from './ChildRowsResolutionCard'
 import { DraftFieldOptionsCard } from './DraftFieldOptionsCard'
 import { DraftInspectionCard } from './DraftInspectionCard'
 import { WorkflowActionConfirmDialog } from '../workflow/WorkflowActionConfirmDialog'
+import { capabilities, isExternalErpNextAction } from '../../config/capabilities'
 
 type Props = {
   parts?: ChatMessagePart[]
@@ -34,10 +35,10 @@ export function StructuredMessageParts({ parts = [], fallback, source, permissio
   const currency=useAuthStore(state=>state.user?.companyCurrency)||'INR'
   const hasTextPart = parts.some(part => part.type === 'text')
   return <div className="space-y-3">
-    {!hasTextPart&&<p>{fallback}</p>}
+    {!hasTextPart&&<p className="max-w-[960px]">{fallback}</p>}
     {source&&<SourceStrip source={source} permission={permission}/>} 
     {parts.map((part,index) => {
-      if(part.type==='text') return <p key={`text-${index}`}>{part.content}</p>
+      if(part.type==='text') return <p key={`text-${index}`} className="max-w-[960px]">{part.content}</p>
       if(part.type==='execution_plan') return <ExecutionPlanCard key={`plan-${index}`} part={part}/>
       if(part.type==='tool_call') return <ToolExecutionCard key={`tool-${index}`} part={part}/>
       if(part.type==='table') return <DynamicTable key={`table-${index}`} part={part} currency={currency} onRowClick={onRowClick}/>
@@ -182,5 +183,6 @@ function formatCompactNumber(value:unknown){
 
 const actionIcons:Record<string,typeof Pin>={generate_pdf:FileDown,export_excel:FileSpreadsheet,export_csv:FileSpreadsheet,download_file:FileDown,open_library:FileSpreadsheet,generate_another:Sparkles,pin_overview:Pin,refine_filters:Filter,view_related:ListFilter,open_module:LayoutDashboard,prepare_later:LockKeyhole}
 function SuggestedActions({actions,onAction}:{actions:SuggestedAction[];onAction:(action:SuggestedAction)=>void}){
-  return <>{actions.map(action=>{const Icon=actionIcons[action.action_type]||Sparkles;return <button key={`${action.action_type}-${action.label}`} type="button" onClick={()=>onAction(action)} disabled={action.disabled} title={action.reason||action.label} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-45"><Icon size={14}/>{action.label}</button>})}</>
+  const visible=actions.filter(action=>capabilities.erpnextExternalLinksEnabled||!isExternalErpNextAction(action.action_type))
+  return <>{visible.map(action=>{const Icon=actionIcons[action.action_type]||Sparkles;return <button key={`${action.action_type}-${action.label}`} type="button" onClick={()=>onAction(action)} disabled={action.disabled} title={action.reason||action.label} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-45"><Icon size={14}/>{action.label}</button>})}</>
 }

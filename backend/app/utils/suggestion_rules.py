@@ -11,15 +11,7 @@ def get_suggestions_for_context(ctx: SuggestionContext) -> list[SuggestedPrompt]
     if ctx.result_type == "empty":
         return [_prompt("Remove Filters", _same("Show the same records without filters", ctx), "remove_filters"), _prompt("Broaden Date Range", _same("Search the same records for this year", ctx), "broaden_date"), _prompt("Search All Records", f"Show all {ctx.doctype or ctx.source_name or 'records'}", "search_all")]
     if ctx.result_type == "workflow_pending_list":
-        suggestions = []
-        if (ctx.row_count or 0) > 0:
-            suggestions.append(_prompt("Open First Document", "Open the first pending approval document", "open_first", group="workflow"))
-        suggestions.extend([
-            _prompt("Show Sales Invoice Approvals", "Show my pending Sales Invoice approvals", "sales_invoice_approvals", group="workflow"),
-            _prompt("Show Purchase Order Approvals", "Show my pending Purchase Order approvals", "purchase_order_approvals", group="workflow"),
-            _prompt("Refresh", ctx.previous_prompt or "Show my pending approvals", "refresh", group="workflow"),
-        ])
-        return suggestions
+        return _workflow_pending_suggestions(ctx)
     if ctx.result_type == "workflow_detail":
         for action in ctx.workflow_actions:
             suggestions.append(SuggestedPrompt(id=_id("wf", action), label=action, type="workflow_action", action_type="preview_workflow_action", payload={"doctype": ctx.doctype, "name": ctx.document_name, "action": action}, risk="medium", requires_confirmation=True, group="workflow"))
@@ -175,3 +167,62 @@ def _looks_time_series(ctx: SuggestionContext) -> bool:
 def _result_id(ctx: SuggestionContext) -> str | None:
     result_id = ctx.extra.get("result_id") or ctx.message_id
     return str(result_id) if result_id else None
+
+
+def _workflow_pending_suggestions(ctx: SuggestionContext) -> list[SuggestedPrompt]:
+    suggestions = [SuggestedPrompt(id=_id("workflow", "refresh"), label="Refresh", type="action", action_type="refresh_pending_approvals", payload={"action": "refresh_pending_approvals"}, group="workflow")]
+    counts = _doctype_counts(ctx)
+    if not counts:
+        return suggestions
+    active_doctype = str((ctx.filters or {}).get("doctype") or "")
+    if active_doctype:
+        suggestions.append(SuggestedPrompt(id=_id("workflow", "all"), label="All Pending Approvals", type="action", action_type="filter_pending_approvals", prompt="Show my pending approvals", payload={"action": "filter_pending_approvals", "doctype": None, "source_result_id": ctx.message_id}, group="workflow"))
+    for item in counts:
+        doctype = item["doctype"]
+        count = int(item["count"])
+        suggestions.append(SuggestedPrompt(
+            id=_id("workflow", f"filter_{doctype}"),
+            label=f"{_plural_label(doctype)} · {count}",
+            type="action",
+            prompt=f"Show my pending {doctype} approvals",
+            action_type="filter_pending_approvals",
+            payload={"action": "filter_pending_approvals", "doctype": doctype, "count": count, "source_result_id": ctx.message_id},
+            group="workflow",
+        ))
+    return suggestions
+
+
+def _doctype_counts(ctx: SuggestionContext) -> list[dict]:
+    raw = ctx.extra.get("doctype_counts") or []
+    counts = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and item.get("doctype"):
+                counts.append({"doctype": str(item["doctype"]), "count": int(item.get("count") or 0)})
+    return sorted(counts, key=lambda item: (-item["count"], item["doctype"].lower()))
+
+
+def _plural_label(doctype: str) -> str:
+    irregular = {
+        "Purchase Order": "Purchase Orders",
+        "Sales Order": "Sales Orders",
+        "Sales Invoice": "Sales Invoices",
+        "Purchase Invoice": "Purchase Invoices",
+        "Quotation": "Quotations",
+        "Pay Deduction Acceptance": "Pay Deduction Acceptances",
+        "HP APPROVAL FORM": "HP Approval Forms",
+    }
+    if doctype in irregular:
+        return irregular[doctype]
+    words = doctype.replace("_", " ").split()
+    if not words:
+        return doctype
+    words = [word if word.isupper() and len(word) <= 3 else word.title() for word in words]
+    last = words[-1]
+    if last.endswith("y") and len(last) > 1 and last[-2].lower() not in "aeiou":
+        words[-1] = f"{last[:-1]}ies"
+    elif last.endswith(("s", "x", "ch", "sh")):
+        words[-1] = f"{last}es"
+    else:
+        words[-1] = f"{last}s"
+    return " ".join(words)

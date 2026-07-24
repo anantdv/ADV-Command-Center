@@ -260,7 +260,18 @@ class ChatService:
             response, plan = await self.executor.run(plan, lambda: self._handle_report_followup(followup, conversation.id, cookies, user), user)
             self._attach_plan_part(response, plan)
         else:
-            intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range, state_context)
+            if structured_action.get("action") in {"filter_pending_approvals", "refresh_pending_approvals"} or structured_action.get("action_type") in {"filter_pending_approvals", "refresh_pending_approvals"}:
+                doctype = structured_action.get("doctype")
+                intent = IntentResult(
+                    intent="workflow_list_pending",
+                    doctype=str(doctype) if doctype else None,
+                    conversation_id=conversation.id,
+                    raw_prompt=request.message,
+                    confidence=1,
+                    extraction_method="rules",
+                )
+            else:
+                intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range, state_context)
             intent.conversation_id = conversation.id
             if intent.intent == "generate_file" and intent.source_type == "chat_result":
                 self._attach_previous_result(intent, await self.repository.get_messages(conversation.id))

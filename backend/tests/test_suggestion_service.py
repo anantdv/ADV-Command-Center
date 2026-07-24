@@ -27,3 +27,40 @@ def test_suggestions_generate_endpoint(client):
     assert response.status_code == 200, response.text
     labels = [item["label"] for item in response.json()["data"]["suggestions"]]
     assert "Show Stock Balance" in labels
+
+
+@pytest.mark.asyncio
+async def test_workflow_pending_suggestions_are_dynamic_from_doctype_counts():
+    ctx = SuggestionContext(
+        result_type="workflow_pending_list",
+        row_count=20,
+        message_id="msg_workflow",
+        extra={"doctype_counts": [
+            {"doctype": "HP APPROVAL FORM", "count": 8},
+            {"doctype": "Quotation", "count": 5},
+            {"doctype": "Purchase Order", "count": 2},
+        ]},
+    )
+    result = await SuggestionService().generate_suggestions(ctx, [], user="tester")
+    labels = [item.label for item in result.suggestions]
+    assert "HP Approval Forms · 8" in labels
+    assert "Quotations · 5" in labels
+    assert "Purchase Orders · 2" in labels
+    assert "Sales Invoices · 1" not in labels
+    assert "Show Sales Invoice Approvals" not in labels
+    assert "Show Purchase Order Approvals" not in labels
+
+
+@pytest.mark.asyncio
+async def test_workflow_pending_filter_suggestion_preserves_structured_payload():
+    ctx = SuggestionContext(
+        result_type="workflow_pending_list",
+        row_count=5,
+        message_id="msg_workflow",
+        extra={"doctype_counts": [{"doctype": "Quotation", "count": 5}]},
+    )
+    result = await SuggestionService().generate_suggestions(ctx, [], user="tester")
+    quotation = next(item for item in result.suggestions if item.payload.get("doctype") == "Quotation")
+    assert quotation.action_type == "filter_pending_approvals"
+    assert quotation.payload["action"] == "filter_pending_approvals"
+    assert quotation.payload["count"] == 5

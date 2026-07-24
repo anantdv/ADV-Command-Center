@@ -1,5 +1,6 @@
-import { Download, ExternalLink, FileSpreadsheet, GitBranch, LayoutDashboard, Loader2, Navigation, PenLine, Pin, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react'
+import { Download, FileSpreadsheet, GitBranch, LayoutDashboard, Loader2, Navigation, PenLine, Pin, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react'
 import type { SuggestedPrompt } from '../../types/suggestions'
+import { capabilities, isExternalErpNextAction } from '../../config/capabilities'
 
 const icons:Record<string,typeof Sparkles>={
   prompt:Sparkles,
@@ -11,12 +12,13 @@ const icons:Record<string,typeof Sparkles>={
   workflow_action:GitBranch,
   crud_confirmation:PenLine,
   download_file:Download,
-  open_library:ExternalLink,
+  open_library:FileSpreadsheet,
   retry:RefreshCw,
 }
 
 export function SuggestedActionButton({suggestion,busy,onClick}:{suggestion:SuggestedPrompt;busy?:boolean;onClick:(suggestion:SuggestedPrompt)=>void}){
   const actionType=suggestion.actionType||suggestion.action_type||suggestion.type
+  if(isExternalErpNextAction(actionType)&&!capabilities.erpnextExternalLinksEnabled)return null
   const Icon=busy?Loader2:(icons[actionType]||icons[suggestion.type]||Sparkles)
   const missingReason=missingPayloadReason(suggestion)
   const disabled=Boolean(suggestion.disabled||busy||missingReason)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.agents.router_agent import IntentResult
 from app.core.exceptions import AppError
 from app.schemas.chat import AssistantChatResponse, PermissionMeta, SourceMeta, SuggestedAction, TextPart, ToolCallPart, WorkflowConfirmationPart
+from app.schemas.suggestions import SuggestedPrompt
 from app.schemas.workflow import ApplyWorkflowActionRequest, WorkflowActionPreviewRequest
 from app.services.workflow_service import WorkflowService
 from app.utils.datetime import utc_now
@@ -36,8 +37,10 @@ class WorkflowAgent:
             summary = "You do not have any documents pending for approval." if not rows else f"I found {len(rows)} document{'s' if len(rows) != 1 else ''} pending for your approval."
             parts = [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="success", output_summary=f"{len(rows)} documents")]
             if rows:
-                parts.append(build_table_part("Pending Approvals", rows))
-            return self._response(conversation_id, intent.intent, summary, parts, SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=len(rows), filters=result.filters))
+                parts.append(build_table_part("Pending Approvals", rows, config={"result_type": "pending_approvals", "doctype_counts": [item.model_dump(mode="json") for item in result.doctype_counts]}))
+            response = self._response(conversation_id, intent.intent, summary, parts, SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=len(rows), filters=result.filters))
+            response.suggestions = _pending_approval_suggestions(result.doctype_counts, result.filters)
+            return response
 
         if intent.intent == "workflow_get_detail":
             if not intent.doctype or not intent.record_name:
@@ -87,15 +90,64 @@ class WorkflowAgent:
         actions = [SuggestedAction(label="Refresh", action_type="refresh_workflow")]
         if intent == "workflow_list_pending" and not count:
             actions.extend([
-                SuggestedAction(label="Open ERPNext Workflow", action_type="open_erpnext_workflow"),
                 SuggestedAction(label="Show Purchase Orders", action_type="prompt", payload={"prompt": "show purchase orders"}),
                 SuggestedAction(label="Show Purchase Invoices", action_type="prompt", payload={"prompt": "show purchase invoices"}),
             ])
-        else:
-            actions.append(SuggestedAction(label="Open in ERPNext", action_type="open_erpnext"))
         return AssistantChatResponse(conversation_id=conversation_id, message_id=message_id, intent=intent, parts=parts, source=source, permission=permission or PermissionMeta(allowed=True), suggested_actions=actions, id=message_id, content=summary, created_at=utc_now())
 
     @classmethod
     def _needs_doc(cls, conversation_id: str) -> AssistantChatResponse:
         summary = "Please specify the ERPNext document type and document number."
         return cls._response(conversation_id, "workflow_missing_document", summary, [TextPart(content=summary)], permission=PermissionMeta(allowed=False, risk_level="medium", reason=summary))
+
+
+def _pending_approval_suggestions(counts, filters: dict | None = None) -> list[SuggestedPrompt]:
+    active_doctype = (filters or {}).get("doctype")
+    suggestions = [
+        SuggestedPrompt(id="sug_workflow_refresh", label="Refresh", type="action", action_type="refresh_pending_approvals", payload={"action": "refresh_pending_approvals"}, group="workflow"),
+    ]
+    if active_doctype:
+        suggestions.append(SuggestedPrompt(id="sug_workflow_all", label="All Pending Approvals", type="action", action_type="filter_pending_approvals", payload={"action": "filter_pending_approvals", "doctype": None}, group="workflow"))
+    for item in counts:
+        doctype = item.doctype
+        count = item.count
+        suggestions.append(SuggestedPrompt(
+            id=f"sug_workflow_filter_{_slug(doctype)}",
+            label=f"{_plural_label(doctype)} · {count}",
+            type="action",
+            action_type="filter_pending_approvals",
+            prompt=f"Show my pending {doctype} approvals",
+            payload={"action": "filter_pending_approvals", "doctype": doctype, "count": count},
+            group="workflow",
+        ))
+    return suggestions
+
+
+def _plural_label(doctype: str) -> str:
+    irregular = {
+        "Purchase Order": "Purchase Orders",
+        "Sales Order": "Sales Orders",
+        "Sales Invoice": "Sales Invoices",
+        "Purchase Invoice": "Purchase Invoices",
+        "Quotation": "Quotations",
+        "Pay Deduction Acceptance": "Pay Deduction Acceptances",
+        "HP APPROVAL FORM": "HP Approval Forms",
+    }
+    if doctype in irregular:
+        return irregular[doctype]
+    words = doctype.replace("_", " ").split()
+    if not words:
+        return doctype
+    words = [word if word.isupper() and len(word) <= 3 else word.title() for word in words]
+    last = words[-1]
+    if last.endswith("y") and len(last) > 1 and last[-2].lower() not in "aeiou":
+        words[-1] = f"{last[:-1]}ies"
+    elif last.endswith(("s", "x", "ch", "sh")):
+        words[-1] = f"{last}es"
+    else:
+        words[-1] = f"{last}s"
+    return " ".join(words)
+
+
+def _slug(value: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in value.lower()).strip("_")

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, ExternalLink, FileText } from 'lucide-react'
+import { CheckCircle2, FileText } from 'lucide-react'
 import { formatCurrency } from '../../utils/formatters'
 import { useAuthStore } from '../../store/useAuthStore'
 import type { RecordDetailPart } from '../../types/chat'
@@ -53,7 +53,6 @@ export function RecordDetailCard({ data }: { data: RecordDetailPart }) {
       <div className="flex flex-wrap gap-2">
         {actions.length>0?<WorkflowActionButtons doctype={data.doctype} name={data.name} actions={actions} onApplied={setAppliedWorkflow}/>:<span className="text-[10px] font-semibold text-slate-400">No workflow actions available</span>}
       </div>
-      <button type="button" className="btn-secondary h-8 px-2 text-xs" disabled title="ERPNext deep links will be enabled after site URL mapping."><ExternalLink size={13}/>Open in ERPNext</button>
     </div>
     {appliedWorkflow && <div className="mx-4 mb-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">
       <CheckCircle2 size={15} className="mt-0.5 shrink-0"/>

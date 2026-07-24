@@ -30,6 +30,8 @@ export type PendingWorkflowDocument = {
 export type PendingApprovalsResponse = {
   documents: PendingWorkflowDocument[]
   total: number
+  doctypeCounts?: Array<{ doctype: string; count: number }>
+  doctype_counts?: Array<{ doctype: string; count: number }>
   filters?: Record<string, unknown>
 }
 
