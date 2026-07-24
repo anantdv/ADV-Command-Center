@@ -33,7 +33,7 @@ class WorkflowAgent:
             except AppError as exc:
                 summary = f"I understood that you want pending approvals, but I could not fetch them from ERPNext. {exc.message}"
                 return self._response(conversation_id, intent.intent, summary, [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="error", output_summary=exc.message)], SourceMeta(source_type="tool", source_name="ERPNext Workflow", record_count=0, filters={"doctype": intent.doctype} if intent.doctype else {}), PermissionMeta(allowed=False, reason=exc.message))
-            rows = [doc.model_dump(mode="json") | {"actions": ", ".join(action.action for action in doc.available_actions)} for doc in result.documents]
+            rows = [_pending_document_row(doc) for doc in result.documents]
             summary = "You do not have any documents pending for approval." if not rows else f"I found {len(rows)} document{'s' if len(rows) != 1 else ''} pending for your approval."
             parts = [TextPart(content=summary), ToolCallPart(tool_name="workflow_pending_approvals", status="success", output_summary=f"{len(rows)} documents")]
             if rows:
@@ -87,7 +87,7 @@ class WorkflowAgent:
     def _response(conversation_id: str, intent: str, summary: str, parts: list, source: SourceMeta | None = None, permission: PermissionMeta | None = None) -> AssistantChatResponse:
         message_id = new_id("msg")
         count = source.record_count if source else None
-        actions = [SuggestedAction(label="Refresh", action_type="refresh_workflow")]
+        actions = [] if intent == "workflow_list_pending" else [SuggestedAction(label="Refresh", action_type="refresh_pending_approvals", payload={"action": "refresh_pending_approvals"})]
         if intent == "workflow_list_pending" and not count:
             actions.extend([
                 SuggestedAction(label="Show Purchase Orders", action_type="prompt", payload={"prompt": "show purchase orders"}),
@@ -151,3 +151,27 @@ def _plural_label(doctype: str) -> str:
 
 def _slug(value: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in value.lower()).strip("_")
+
+
+def _pending_document_row(doc) -> dict:
+    actions = [action.model_dump(mode="json") for action in doc.available_actions]
+    return {
+        "doctype": doc.doctype,
+        "name": doc.name,
+        "title": doc.title,
+        "workflow_state": doc.workflow_state,
+        "status": doc.status,
+        "party": doc.party,
+        "posting_date": doc.posting_date,
+        "transaction_date": doc.transaction_date,
+        "grand_total": doc.grand_total,
+        "currency": doc.currency,
+        "actions": ", ".join(action.get("label") or action.get("action") or "" for action in actions) or "Open",
+        "_meta": {
+            "doctype": doc.doctype,
+            "name": doc.name,
+            "clickable": True,
+            "workflow_actions": actions,
+            "result_type": "pending_approvals",
+        },
+    }

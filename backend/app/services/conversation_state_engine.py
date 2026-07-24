@@ -8,6 +8,7 @@ from typing import Any
 from app.schemas.chat import AssistantChatResponse, ChatMessageRequest
 from app.schemas.conversation_state import ConversationContext, ConversationState, StateDecision
 from app.utils.datetime import utc_now
+from app.utils.detail_intent_parser import parse_detail_intent
 from app.utils.workflow_intent_parser import parse_workflow_intent
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,18 @@ DOCTYPE_ABBREVIATIONS = {
     "je": "journal entry",
     "pe": "payment entry",
     "rfq": "request for quotation",
+}
+
+
+STRUCTURED_RESULT_ACTIONS = {
+    "refresh_result",
+    "refresh_pending_approvals",
+    "filter_pending_approvals",
+    "clear_pending_approval_filter",
+    "open_document_detail",
+    "workflow_open_document",
+    "workflow_apply_action",
+    "execute_workflow_action",
 }
 
 
@@ -44,13 +57,22 @@ class ConversationStateEngine:
     def decide(self, request: ChatMessageRequest, context: ConversationContext, has_pending_draft: bool, has_report: bool) -> StateDecision:
         normalized = normalize_business_abbreviations(request.message)
         action = request.structured_action or {}
+        action_name = str(action.get("action") or action.get("action_type") or "")
         active = context.active_state
         if action.get("action") == "select_entity_match":
             return StateDecision(route="structured_selection", normalized_message=normalized, active_state=active, reason="structured entity selection")
         if action.get("action") in {"select_draft_field_value", "set_child_row_field", "set_field_for_rows"}:
             return StateDecision(route="structured_draft_field", normalized_message=normalized, active_state=active, reason="structured draft field selection")
+        if action_name in STRUCTURED_RESULT_ACTIONS:
+            return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason=f"structured result action: {action_name}")
+        if looks_like_document_detail_request(normalized):
+            return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason="document detail request")
         if looks_like_workflow_request(normalized):
             return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason="workflow request")
+        if looks_like_context_refresh(normalized) and active in {ConversationState.WORKFLOW_READY, ConversationState.WORKFLOW_DETAIL, ConversationState.REPORT_READY, ConversationState.REPORT_DETAIL}:
+            return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason="context refresh")
+        if looks_like_explicit_report_or_list(normalized):
+            return StateDecision(route="general_router", normalized_message=normalized, active_state=active, reason="explicit read/report request")
         if has_pending_draft and not looks_like_new_draft(normalized):
             return StateDecision(route="draft_continue", normalized_message=normalized, active_state=active, reason="active draft session")
         if has_report and looks_like_report_followup(normalized):
@@ -71,12 +93,15 @@ class ConversationStateEngine:
         started = perf_counter()
         new_state = state_from_response(response)
         workflow_context = _response_workflow_context(response)
+        response_doctype = _response_doctype(response)
+        if response.intent == "workflow_list_pending" and response.source and not (response.source.filters or {}).get("doctype"):
+            response_doctype = None
         updated = context.model_copy(update={
             "active_state": new_state,
             "active_plan_id": _response_plan_id(response) or context.active_plan_id,
             "draft_session_id": response.conversation_id if new_state.name.startswith("DRAFT") or new_state in {ConversationState.ENTITY_SELECTION, ConversationState.WAITING_USER_SELECTION, ConversationState.WAITING_USER_CONFIRMATION} else context.draft_session_id,
             "report_session_id": _response_report_id(response) or context.report_session_id,
-            "active_doctype": _response_doctype(response) or context.active_doctype,
+            "active_doctype": response_doctype if response_doctype is not None or response.intent == "workflow_list_pending" else context.active_doctype,
             "active_document": (workflow_context or {}).get("name") or _response_document_name(response) or context.active_document,
             "active_workflow_state": (workflow_context or {}).get("workflow_state") or context.active_workflow_state,
             "active_workflow_actions": (workflow_context or {}).get("available_actions") or context.active_workflow_actions,
@@ -134,6 +159,24 @@ def looks_like_report_followup(message: str) -> bool:
 
 def looks_like_workflow_request(message: str) -> bool:
     return parse_workflow_intent(message) is not None
+
+
+def looks_like_document_detail_request(message: str) -> bool:
+    return parse_detail_intent(message).matched
+
+
+def looks_like_context_refresh(message: str) -> bool:
+    return bool(re.fullmatch(r"(?i)\s*(refresh|reload|try again|retry|refresh it|reload it)\s*", message or ""))
+
+
+def looks_like_explicit_report_or_list(message: str) -> bool:
+    text = message.lower()
+    if re.search(r"\b(show|list|open|view|get|find|search|display)\b", text) and re.search(
+        r"\b(customers?|suppliers?|items?|sales invoices?|purchase invoices?|sales orders?|purchase orders?|quotations?|stock balance|receivables?|payables?|general ledger|trial balance|reports?|records?)\b",
+        text,
+    ):
+        return True
+    return False
 
 
 def state_from_response(response: AssistantChatResponse) -> ConversationState:
@@ -245,6 +288,8 @@ def _response_report_id(response: AssistantChatResponse) -> str | None:
 def _response_doctype(response: AssistantChatResponse) -> str | None:
     if response.source and response.source.doctype:
         return response.source.doctype
+    if response.source and response.source.filters and response.source.filters.get("doctype"):
+        return str(response.source.filters["doctype"])
     for part in response.parts:
         if getattr(part, "doctype", None):
             return getattr(part, "doctype")

@@ -1,4 +1,7 @@
 from app.services.conversation_state_engine import normalize_business_abbreviations
+from app.schemas.chat import ChatMessageRequest
+from app.schemas.conversation_state import ConversationContext, ConversationState
+from app.services.conversation_state_engine import ConversationStateEngine
 
 
 def _send(client, message: str, conversation_id: str | None = None, structured_action: dict | None = None):
@@ -83,3 +86,31 @@ def test_workflow_query_bypasses_active_draft(client):
     assert approvals["intent"] == "workflow_list_pending"
     assert approvals["response_type"] == "workflow_list_pending"
     assert "draft" not in approvals["content"].lower()
+
+
+def test_structured_refresh_bypasses_active_draft_state():
+    engine = ConversationStateEngine()
+    context = ConversationContext(conversation_id="conv-test", active_state=ConversationState.DRAFT_ENTITY_RESOLUTION)
+    decision = engine.decide(
+        ChatMessageRequest(message="Refresh", structured_action={"action": "refresh_result", "result_type": "pending_approvals"}),
+        context,
+        has_pending_draft=True,
+        has_report=False,
+    )
+
+    assert decision.route == "general_router"
+    assert "structured result action" in decision.reason
+
+
+def test_exact_document_detail_bypasses_active_draft_state():
+    engine = ConversationStateEngine()
+    context = ConversationContext(conversation_id="conv-test", active_state=ConversationState.DRAFT_ENTITY_RESOLUTION)
+    decision = engine.decide(
+        ChatMessageRequest(message="show detail for Purchase Order PUR-ORD-2026-00608"),
+        context,
+        has_pending_draft=True,
+        has_report=False,
+    )
+
+    assert decision.route == "general_router"
+    assert decision.reason == "document detail request"

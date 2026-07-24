@@ -51,6 +51,7 @@ from app.services.task_executor import TaskExecutor, plan_part, task_executor
 from app.services.task_plan_validator import TaskPlanValidator, task_plan_validator
 from app.services.task_planner import TaskPlanner, task_planner
 from app.utils.datetime import utc_now
+from app.utils.detail_intent_parser import parse_detail_intent
 from app.utils.ids import new_id
 from app.utils.suggestion_context_builder import SuggestionContextBuilder
 from app.utils.table_formatter import build_table_part
@@ -64,6 +65,14 @@ from app.schemas.task_plan import ExecutionPlan
 logger = logging.getLogger(__name__)
 
 CLARIFICATION_MESSAGE = "I could not determine the requested report operation."
+ACTIVE_DRAFT_STATUSES = {
+    "collecting",
+    "resolving_entities",
+    "waiting_for_field",
+    "editing",
+    "awaiting_confirmation",
+}
+INACTIVE_DRAFT_STATUSES = {"created", "cancelled", "expired", "superseded", "suspended"}
 
 
 class ChatService:
@@ -145,8 +154,9 @@ class ChatService:
         )
         state_context = await self.state_engine.load_context(self.repository, conversation.id)
         pending_snapshot = await self.repository.get_pending_draft(conversation.id)
+        active_pending_snapshot = pending_snapshot if self._is_active_pending_draft(pending_snapshot) else None
         report_snapshot = await self.repository.get_latest_result_context(conversation.id)
-        state_decision = self.state_engine.decide(request, state_context, bool(pending_snapshot), bool(report_snapshot))
+        state_decision = self.state_engine.decide(request, state_context, bool(active_pending_snapshot), bool(report_snapshot))
         if state_decision.normalized_message != request.message:
             request = request.model_copy(update={"message": state_decision.normalized_message})
         await self.repository.save_message(
@@ -198,7 +208,7 @@ class ChatService:
             return response
 
         fresh_draft_intent = self.router._planned_create_intent(request.message) if state_decision.route == "new_draft" else None
-        if fresh_draft_intent and await self.repository.get_pending_draft(conversation.id):
+        if fresh_draft_intent and self._is_active_pending_draft(await self.repository.get_pending_draft(conversation.id)):
             await self.repository.supersede_pending_draft(conversation.id, new_id("draft"))
             await self.repository.clear_pending_draft(conversation.id)
             fresh_draft_intent.conversation_id = conversation.id
@@ -260,14 +270,48 @@ class ChatService:
             response, plan = await self.executor.run(plan, lambda: self._handle_report_followup(followup, conversation.id, cookies, user), user)
             self._attach_plan_part(response, plan)
         else:
-            if structured_action.get("action") in {"filter_pending_approvals", "refresh_pending_approvals"} or structured_action.get("action_type") in {"filter_pending_approvals", "refresh_pending_approvals"}:
-                doctype = structured_action.get("doctype")
+            structured_action_name = str(structured_action.get("action") or structured_action.get("action_type") or "")
+            if structured_action_name in {"filter_pending_approvals", "refresh_pending_approvals", "refresh_result", "clear_pending_approval_filter"}:
+                doctype = None if structured_action_name in {"clear_pending_approval_filter"} else structured_action.get("doctype")
+                result_type = str(structured_action.get("result_type") or structured_action.get("resultType") or "")
+                if structured_action_name == "refresh_result" and result_type and result_type != "pending_approvals":
+                    intent = await self.router.classify(request.message, request.module_context, user, conversation.id, request.date_range, state_context)
+                else:
+                    intent = IntentResult(
+                        intent="workflow_list_pending",
+                        doctype=str(doctype) if doctype else None,
+                        conversation_id=conversation.id,
+                        raw_prompt=request.message,
+                        confidence=1,
+                        extraction_method="rules",
+                    )
+            elif structured_action_name in {"open_document_detail", "workflow_open_document"}:
                 intent = IntentResult(
-                    intent="workflow_list_pending",
-                    doctype=str(doctype) if doctype else None,
+                    intent="workflow_get_detail",
+                    doctype=str(structured_action.get("doctype") or ""),
+                    record_name=str(structured_action.get("name") or structured_action.get("record_name") or structured_action.get("recordName") or ""),
                     conversation_id=conversation.id,
                     raw_prompt=request.message,
                     confidence=1,
+                    extraction_method="rules",
+                )
+            elif self._is_context_refresh(request.message) and state_context.active_state.value in {"WORKFLOW_READY", "WORKFLOW_DETAIL"}:
+                intent = IntentResult(
+                    intent="workflow_list_pending",
+                    doctype=state_context.active_doctype if state_context.active_state.value == "WORKFLOW_READY" else None,
+                    conversation_id=conversation.id,
+                    raw_prompt=request.message,
+                    confidence=1,
+                    extraction_method="rules",
+                )
+            elif state_context.active_state.value in {"WORKFLOW_READY", "WORKFLOW_DETAIL"} and (detail_intent := parse_detail_intent(request.message)).matched:
+                intent = IntentResult(
+                    intent="workflow_get_detail",
+                    doctype=detail_intent.doctype,
+                    record_name=detail_intent.name,
+                    conversation_id=conversation.id,
+                    raw_prompt=request.message,
+                    confidence=detail_intent.confidence,
                     extraction_method="rules",
                 )
             else:
@@ -427,6 +471,21 @@ class ChatService:
         """Backward-compatible method name for existing service callers."""
         return await self.send_chat_message(request, cookies, user, user_roles)
 
+    @staticmethod
+    def _is_active_pending_draft(pending: dict[str, Any] | None) -> bool:
+        if not pending:
+            return False
+        status = str(pending.get("status") or "collecting").strip().lower()
+        if status in INACTIVE_DRAFT_STATUSES:
+            return False
+        if status.startswith("awaiting_"):
+            return True
+        return status in ACTIVE_DRAFT_STATUSES
+
+    @staticmethod
+    def _is_context_refresh(message: str) -> bool:
+        return bool(re.fullmatch(r"\s*(refresh|reload|try again|retry|refresh it|reload it)\s*", message or "", re.I))
+
     async def action(self, action_id: str, confirmed: bool) -> ChatActionResult:
         return ChatActionResult(action_id=action_id, status="confirmed" if confirmed else "cancelled")
 
@@ -449,7 +508,7 @@ class ChatService:
 
     async def _maybe_continue_pending_draft(self, request: ChatMessageRequest, conversation_id: str, cookies: dict | None, user: str) -> AssistantChatResponse | None:
         pending = await self.repository.get_pending_draft(conversation_id)
-        if not pending:
+        if not self._is_active_pending_draft(pending):
             return None
         text = request.message.lower()
         if re.search(r"\b(cancel|start again|start over)\b", text):

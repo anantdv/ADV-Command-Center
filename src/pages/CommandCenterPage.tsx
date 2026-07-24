@@ -146,6 +146,10 @@ export function CommandCenterPage() {
       executeCommand({text:`refine filters for ${source?.source_name||'this result'}`,source:'generated_action',structuredAction:action.payload})
       return
     }
+    if(['refresh_pending_approvals','refresh_result','filter_pending_approvals','clear_pending_approval_filter','open_document_detail'].includes(action.action_type)){
+      executeCommand({text:action.label,source:'generated_action',structuredAction:{...(action.payload||{}),action:action.action_type}})
+      return
+    }
     const format:Record<string,string>={generate_pdf:'pdf',export_excel:'excel',export_csv:'csv'}
     if(format[action.action_type]){
       const overdue=source?.filters&&source.filters.status==='Overdue'?'overdue ':''
@@ -168,7 +172,7 @@ export function CommandCenterPage() {
       executeCommand({text:suggestion.prompt||suggestion.label,source:'generated_action',structuredAction:payload,requestedOutput:String(payload.operation||'')})
       return
     }
-    if(suggestion.type==='action'&&['filter_pending_approvals','refresh_pending_approvals'].includes(actionType||'')){
+    if(suggestion.type==='action'&&['filter_pending_approvals','refresh_pending_approvals','refresh_result','clear_pending_approval_filter','open_document_detail'].includes(actionType||'')){
       executeCommand({text:suggestion.prompt||suggestion.label,source:'generated_action',structuredAction:{...payload,action:actionType}})
       return
     }
@@ -224,9 +228,19 @@ export function CommandCenterPage() {
     setUiAction({type:dialogMap[actionType]||'unavailable',payload})
   }
   const runRowClick=(row:Record<string,unknown>)=>{
-    const meta=row._meta as {doctype?:string;name?:string;clickable?:boolean}|undefined
+    const meta=row._meta as {doctype?:string;name?:string;clickable?:boolean;result_type?:string}|undefined
     if(!meta?.clickable||!meta.doctype||!meta.name)return
-    executeCommand({text:`show detail for ${meta.doctype} ${meta.name}`,source:'table_row'})
+    executeCommand({
+      text:`show detail for ${meta.doctype} ${meta.name}`,
+      source:'table_row',
+      structuredAction:{
+        action:'open_document_detail',
+        doctype:meta.doctype,
+        name:meta.name,
+        source_result_id:activeReportContext?.resultId,
+        result_type:meta.result_type,
+      },
+    })
   }
   const startNew=()=>{setNewChat(true);setSelectedId(undefined);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}
   const selectConversation=(id:string)=>{setSelectedId(id);setNewChat(false);setOptimisticUser(null);setTransientResponse(null);sendMessage.reset()}

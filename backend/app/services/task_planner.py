@@ -88,6 +88,10 @@ class TaskPlanner:
         if plan_type == PlanType.FILE_GENERATION:
             return "Generate File"
         if plan_type == PlanType.WORKFLOW:
+            if intent and intent.intent == "workflow_list_pending":
+                return "Workflow Pending Approvals"
+            if intent and intent.intent == "workflow_get_detail":
+                return f"Open Workflow Document {intent.doctype or ''} {intent.record_name or ''}".strip()
             return "Workflow Action"
         return request.message[:80]
 
@@ -136,6 +140,19 @@ class TaskPlanner:
                 self._step("2", PlanAction.EXPORT, "Generate file from allowed data", ["1"]),
             ]
         if plan_type == PlanType.WORKFLOW:
+            if intent and intent.intent == "workflow_list_pending":
+                return [
+                    self._step("1", PlanAction.VALIDATE, "Validate workflow request"),
+                    self._step("2", PlanAction.RUN_REPORT, "Load pending approvals", ["1"]),
+                    self._step("3", PlanAction.VALIDATE, "Apply approval filters", ["2"]),
+                    self._step("4", PlanAction.CONFIRM, "Await user action", ["3"]),
+                ]
+            if intent and intent.intent == "workflow_get_detail":
+                return [
+                    self._step("1", PlanAction.VALIDATE, "Validate workflow document request"),
+                    self._step("2", PlanAction.GET_RECORD, "Load workflow document detail", ["1"]),
+                    self._step("3", PlanAction.CONFIRM, "Await workflow action", ["2"]),
+                ]
             return [
                 self._step("1", PlanAction.VALIDATE, "Validate workflow request"),
                 self._step("2", PlanAction.CONFIRM, "Require workflow confirmation", ["1"]),

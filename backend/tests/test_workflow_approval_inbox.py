@@ -42,3 +42,33 @@ def test_chat_pending_approvals():
     data = response.json()["data"]
     assert data["intent"] == "workflow_list_pending"
     assert any(part["type"] == "table" for part in data["parts"])
+
+
+def test_chat_pending_approvals_table_hides_raw_available_action_objects():
+    client = TestClient(app)
+    response = client.post("/api/chat/message", json={"message": "show my pending approvals"})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    table = next(part for part in data["parts"] if part["type"] == "table")
+    column_keys = {column["key"] for column in table["columns"]}
+
+    assert "available_actions" not in column_keys
+    assert "availableActions" not in column_keys
+    assert "actions" in column_keys
+    assert isinstance(table["rows"][0]["actions"], str)
+    assert table["rows"][0]["_meta"]["workflow_actions"]
+
+
+def test_workflow_pending_plan_uses_workflow_steps_not_draft_steps():
+    client = TestClient(app)
+    response = client.post("/api/chat/message", json={"message": "show my pending approvals"})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    plan = next(part for part in data["parts"] if part["type"] == "execution_plan")
+    labels = [step["label"] for step in plan["steps"]]
+
+    assert plan["title"] == "Workflow Pending Approvals"
+    assert "Load pending approvals" in labels
+    assert all("DraftSession" not in label and "child rows" not in label for label in labels)

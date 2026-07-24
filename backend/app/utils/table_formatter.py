@@ -17,6 +17,8 @@ def build_table_part(
         for key in row:
             if key.startswith("_"):
                 continue
+            if isinstance(row.get(key), (dict, list, tuple, set)):
+                continue
             if key not in keys:
                 keys.append(key)
     columns = [
