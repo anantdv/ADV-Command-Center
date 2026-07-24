@@ -81,7 +81,12 @@ export function ApprovalsPage() {
   }
 
   if (loading) return <LoadingState table />
-  if (error && !documents.length) return <ErrorState message={error} retry={() => void load()} />
+  if (error && !documents.length) {
+    const staleQueue = /not found/i.test(error)
+    return staleQueue
+      ? <StaleQueueError message={error} onRefresh={() => void load()} />
+      : <ErrorState message={error} retry={() => void load()} />
+  }
 
   return <div className="space-y-5">
     <PageHeader eyebrow="ERPNext Workflow Inbox" title="Approvals" description="Review documents waiting for your ERPNext workflow action. Actions are executed by ERPNext workflow only." actions={<button className="btn-secondary" onClick={() => void load()}><RefreshCw size={15}/>Refresh</button>} />
@@ -171,6 +176,21 @@ function MissingApprovalDetail({ selected, message, onRemove, onRefresh }: { sel
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         <button className="btn-secondary" onClick={onRemove}>Remove from queue</button>
         <button className="btn-primary" onClick={onRefresh}><RefreshCw size={14}/>Refresh</button>
+      </div>
+    </div>
+  </div>
+}
+
+function StaleQueueError({ message, onRefresh }: { message: string; onRefresh: () => void }) {
+  return <div className="grid min-h-[520px] place-items-center">
+    <div className="max-w-xl rounded-3xl border border-amber-200 bg-white p-8 text-center shadow-sm">
+      <ClipboardCheck className="mx-auto text-amber-600" size={38}/>
+      <h2 className="mt-4 text-xl font-bold text-slate-900">Approval queue needs refresh</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">ERPNext has a stale Workflow Action pointing to a document that no longer exists. Refresh the queue after updating the companion app; valid approvals will continue to load.</p>
+      <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">{message}</p>
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
+        <button className="btn-primary" onClick={onRefresh}><RefreshCw size={14}/>Refresh queue</button>
+        <a className="btn-secondary" href="/app/workflow-action" target="_blank" rel="noreferrer">Open ERPNext Workflow</a>
       </div>
     </div>
   </div>
