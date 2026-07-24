@@ -43,10 +43,16 @@ export function WorkflowActionConfirmDialog({ preview, onClose, onApplied }: Pro
       {error && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</div>}
       <div className="mt-5 flex justify-end gap-2">
         <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="btn-primary" onClick={() => void confirm()} disabled={busy || !confirmationId}>{busy ? <Loader2 size={15} className="animate-spin"/> : <CheckCircle2 size={15}/>}Confirm {preview.action}</button>
+        <button className={confirmButtonClass(preview.action)} onClick={() => void confirm()} disabled={busy || !confirmationId}>{busy ? <Loader2 size={15} className="animate-spin"/> : <CheckCircle2 size={15}/>}Confirm {preview.action}</button>
       </div>
     </div>
   </div>
 }
 
 function label(key: string) { return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+function confirmButtonClass(action: string) {
+  const lower = action.toLowerCase()
+  if (lower.includes('reject')) return 'inline-flex h-10 items-center gap-2 rounded-xl bg-[#DC2626] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-60'
+  if (lower.includes('approve')) return 'inline-flex h-10 items-center gap-2 rounded-xl bg-[#16A34A] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60'
+  return 'btn-primary'
+}

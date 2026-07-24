@@ -8,8 +8,9 @@ import { workflowService } from '../services/workflowService'
 import type { ApplyWorkflowActionResponse, PendingWorkflowDocument, WorkflowAction, WorkflowActionPreviewResponse, WorkflowDocumentDetail } from '../types/workflow'
 import { cn } from '../utils/cn'
 import { WorkflowActionConfirmDialog } from '../components/workflow/WorkflowActionConfirmDialog'
+import { BusinessGraphPanel } from '../components/graph/BusinessGraphPanel'
 
-const preferredDoctypes = ['Purchase Order', 'Purchase Invoice', 'Expense Claim', 'Leave Application', 'Sales Order']
+const preferredDoctypes = ['Quotation', 'Sales Order', 'Purchase Order', 'Purchase Invoice', 'Expense Claim', 'Leave Application', 'Stock Entry', 'Journal Entry']
 
 export function ApprovalsPage() {
   const [documents, setDocuments] = useState<PendingWorkflowDocument[]>([])
@@ -18,6 +19,7 @@ export function ApprovalsPage() {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
   const [preview, setPreview] = useState<WorkflowActionPreviewResponse | null>(null)
 
@@ -26,7 +28,7 @@ export function ApprovalsPage() {
     try {
       const response = await workflowService.listPending()
       setDocuments(response.documents || [])
-      setSelected(current => current && response.documents.some(doc => sameDoc(doc, current)) ? current : response.documents[0] || null)
+      setSelected(current => current && response.documents.some(doc => sameDoc(doc, current)) ? current : null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load pending approvals.')
     } finally { setLoading(false) }
@@ -35,11 +37,15 @@ export function ApprovalsPage() {
   useEffect(() => { void load() }, [])
 
   useEffect(() => {
-    if (!selected) { setDetail(null); return }
+    if (!selected) { setDetail(null); setDetailError(null); return }
     setDetailLoading(true)
+    setDetailError(null)
     workflowService.getDocument(selected.doctype, selected.name)
       .then(setDetail)
-      .catch(err => setError(err instanceof Error ? err.message : 'Could not load approval document.'))
+      .catch(err => {
+        setDetail(null)
+        setDetailError(err instanceof Error ? err.message : 'Could not load approval document.')
+      })
       .finally(() => setDetailLoading(false))
   }, [selected])
 
@@ -61,7 +67,17 @@ export function ApprovalsPage() {
 
   async function afterApplied(_response: ApplyWorkflowActionResponse) {
     setPreview(null)
+    setDetail(null)
+    setSelected(null)
     await load()
+  }
+
+  function removeSelectedFromQueue() {
+    if (!selected) return
+    setDocuments(current => current.filter(doc => !sameDoc(doc, selected)))
+    setSelected(null)
+    setDetail(null)
+    setDetailError(null)
   }
 
   if (loading) return <LoadingState table />
@@ -81,16 +97,26 @@ export function ApprovalsPage() {
             <div className="mb-2 flex items-center justify-between px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400"><span>{doctype}</span><span>{grouped[doctype].length}</span></div>
             <div className="space-y-2">{grouped[doctype].map(doc => <button key={`${doc.doctype}:${doc.name}`} onClick={() => setSelected(doc)} className={cn('w-full rounded-2xl border p-3 text-left transition hover:border-purple-200 hover:bg-purple-50/40', selected && sameDoc(doc, selected) ? 'border-purple-300 bg-purple-50 ring-2 ring-purple-100' : 'border-slate-200 bg-white')}>
               <div className="flex items-start justify-between gap-3">
-                <div><p className="text-xs font-bold text-slate-800">{doc.title || doc.name}</p><p className="mt-1 text-[11px] text-slate-500">{party(doc) || doc.status || 'Pending workflow action'}</p></div>
-                <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">{state(doc)}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2"><span className={cn('size-2 shrink-0 rounded-full', unread(doc) ? 'bg-purple-500' : 'bg-slate-200')}/><p className="truncate text-xs font-bold text-slate-800">{doc.title || doc.name}</p></div>
+                  <p className="mt-1 truncate text-[11px] text-slate-500">{party(doc) || doc.status || 'Pending workflow action'}</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">{state(doc)}</span>
+                  <span className={priorityClass(priority(doc))}>{priority(doc)}</span>
+                </div>
               </div>
-              <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>{dateOf(doc) || 'No date'}</span><span>{money(doc)}</span></div>
+              <div className="mt-2 grid gap-1 text-[11px] text-slate-400 sm:grid-cols-2">
+                <span>{age(doc)}</span>
+                <span className="sm:text-right">{money(doc)}</span>
+                <span className="truncate sm:col-span-2">Requested by {requestedBy(doc)}</span>
+              </div>
             </button>)}</div>
           </div>)}
         </div>
       </section>
       <section className="card min-h-[520px] p-5">
-        {detailLoading ? <LoadingState /> : detail ? <ApprovalDetail detail={detail} actioning={actioning} onApply={apply} /> : <EmptyState title="Select an approval" description="Choose a document from the inbox to review summary, workflow history, comments, attachments, and actions." />}
+        {detailLoading ? <LoadingState /> : detail ? <ApprovalDetail detail={detail} actioning={actioning} onApply={apply} /> : detailError && selected ? <MissingApprovalDetail selected={selected} message={detailError} onRemove={removeSelectedFromQueue} onRefresh={() => void load()} /> : <EmptyState title="Select an approval from the left panel." description="The approval queue is the source of truth. Details load only after you choose a pending document." />}
       </section>
     </div>}
     <WorkflowActionConfirmDialog preview={preview} onClose={() => setPreview(null)} onApplied={response => void afterApplied(response)}/>
@@ -122,10 +148,29 @@ function ApprovalDetail({ detail, actioning, onApply }: { detail: WorkflowDocume
     <div className="rounded-2xl border p-4">
       <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Workflow actions</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {actions.length ? actions.map(action => <button key={action.action} disabled={!!actioning} onClick={() => onApply(action)} className={cn('btn-secondary', action.action.toLowerCase().includes('approve') && 'border-emerald-200 bg-emerald-50 text-emerald-700', action.action.toLowerCase().includes('reject') && 'border-red-200 bg-red-50 text-red-700')}>
-          {action.action.toLowerCase().includes('approve') ? <CheckCircle2 size={15}/> : action.action.toLowerCase().includes('reject') ? <XCircle size={15}/> : <RotateCcw size={15}/>}
-          {actioning === action.action ? 'Applying...' : action.action}
+        {actions.length ? actions.map(action => <button key={action.action} disabled={!!actioning} onClick={() => onApply(action)} className={workflowButtonClass(action.action)}>
+          {actioning === action.action ? <RefreshCw size={15} className="animate-spin"/> : action.action.toLowerCase().includes('approve') ? <CheckCircle2 size={15}/> : action.action.toLowerCase().includes('reject') ? <XCircle size={15}/> : <RotateCcw size={15}/>}
+          {actioning === action.action ? loadingLabel(action.action) : action.action}
         </button>) : <p className="text-sm text-slate-500">No workflow actions are currently available for your user.</p>}
+      </div>
+    </div>
+    <div className="rounded-2xl border p-4">
+      <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Business graph</p>
+      <BusinessGraphPanel doctype={detail.doctype} name={detail.name}/>
+    </div>
+  </div>
+}
+
+function MissingApprovalDetail({ selected, message, onRemove, onRefresh }: { selected: PendingWorkflowDocument; message: string; onRemove: () => void; onRefresh: () => void }) {
+  return <div className="grid min-h-[480px] place-items-center text-center">
+    <div className="max-w-md rounded-3xl border border-amber-200 bg-amber-50 p-6">
+      <ClipboardCheck className="mx-auto text-amber-600" size={34}/>
+      <h2 className="mt-3 text-lg font-bold text-slate-900">Document no longer exists.</h2>
+      <p className="mt-2 text-sm text-slate-600">{selected.doctype} {selected.name} could not be loaded. It may have been deleted, completed, or you may no longer have access.</p>
+      <p className="mt-2 rounded-xl bg-white/70 p-3 text-xs font-semibold text-amber-800">{message}</p>
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
+        <button className="btn-secondary" onClick={onRemove}>Remove from queue</button>
+        <button className="btn-primary" onClick={onRefresh}><RefreshCw size={14}/>Refresh</button>
       </div>
     </div>
   </div>
@@ -137,7 +182,39 @@ function state(doc: PendingWorkflowDocument) { return doc.workflowState || doc.w
 function party(doc: PendingWorkflowDocument) { return doc.party }
 function dateOf(doc: PendingWorkflowDocument) { return doc.postingDate || doc.posting_date || doc.transactionDate || doc.transaction_date || doc.modified }
 function money(doc: PendingWorkflowDocument) { const total = doc.grandTotal ?? doc.grand_total; return total == null ? '' : `${doc.currency || ''} ${Number(total).toLocaleString()}`.trim() }
+function requestedBy(doc: PendingWorkflowDocument) { const value = extra(doc, 'requested_by') || extra(doc, 'owner') || doc.owner; return String(value || 'ERPNext') }
+function unread(doc: PendingWorkflowDocument) { return Boolean(extra(doc, 'unread') ?? extra(doc, 'is_unread')) }
+function priority(doc: PendingWorkflowDocument) { return String(extra(doc, 'priority') || 'Normal') }
+function age(doc: PendingWorkflowDocument) {
+  const value = dateOf(doc)
+  if (!value) return 'No date'
+  const date = new Date(String(value).replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return String(value)
+  const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000))
+  if (days === 0) return 'Today'
+  if (days === 1) return '1 day old'
+  return `${days} days old`
+}
+function extra(doc: PendingWorkflowDocument, key: string) { return (doc as unknown as Record<string, unknown>)[key] }
+function priorityClass(value: string) {
+  const lower = value.toLowerCase()
+  if (lower.includes('critical') || lower.includes('urgent')) return 'rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-700'
+  if (lower.includes('high')) return 'rounded-full bg-orange-50 px-2 py-0.5 text-[9px] font-bold text-orange-700'
+  return 'rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500'
+}
 function label(key: string) { return key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, c => c.toUpperCase()) }
+function workflowButtonClass(action: string) {
+  const lower = action.toLowerCase()
+  if (lower.includes('approve')) return 'inline-flex h-10 items-center gap-2 rounded-xl bg-[#16A34A] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60'
+  if (lower.includes('reject')) return 'inline-flex h-10 items-center gap-2 rounded-xl bg-[#DC2626] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-60'
+  return 'btn-secondary h-10 px-4 text-xs'
+}
+function loadingLabel(action: string) {
+  const lower = action.toLowerCase()
+  if (lower.includes('approve')) return 'Approving...'
+  if (lower.includes('reject')) return 'Rejecting...'
+  return 'Processing...'
+}
 function executiveSummary(detail: WorkflowDocumentDetail) {
   const total = detail.summary?.grand_total || detail.summary?.grandTotal
   const currency = detail.summary?.currency
